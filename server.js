@@ -99,7 +99,7 @@ app.post('/api/providers/:id/test', auth, async (req, res) => {
   const p = db.providers.find(p => p.id === req.params.id && p.userId === req.uid);
   if (!p) return res.status(404).json({ error: 'Not found' });
   const t0 = Date.now(), r = await ask(p, 'Reply with only the word: PONG', true);
-  r.pass = !!(r.ok && /pong/i.test(r.text)); r.ms = Date.now() - t0;
+  r.pass = !!(r.ok && /pong/i.test(r.text)); r.ms = Date.now() - t0; p.lastTest = { ok: r.pass, ts: Date.now() };
   db.logs.push({ ts: Date.now(), userId: req.uid, keyId: 'test', provider: p.name, ms: r.ms, ok: r.ok, err: r.error || '', promptLen: 29 }); save();
   res.json(r);
 });

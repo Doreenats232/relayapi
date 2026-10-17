@@ -95,6 +95,19 @@ app.get('/v1/models', (req, res) => {
   if (!key) return res.status(401).json({ error: { message: 'Invalid API key' } });
   res.json({ object: 'list', data: db.providers.filter(p => p.userId === key.userId).map(p => ({ id: p.name, object: 'model' })) });
 });
-app.post('/api/playground', auth, (req, res) => run(req.uid, 'playground', req.body || {}, res));
+app.post('/api/providers/:id/test', auth, async (req, res) => {
+  const p = db.providers.find(p => p.id === req.params.id && p.userId === req.uid);
+  if (!p) return res.status(404).json({ error: 'Not found' });
+  const t0 = Date.now(), r = await ask(p, 'Reply with only the word: PONG', true);
+  r.pass = !!(r.ok && /pong/i.test(r.text)); r.ms = Date.now() - t0;
+  db.logs.push({ ts: Date.now(), userId: req.uid, keyId: 'test', provider: p.name, ms: r.ms, ok: r.ok, err: r.error || '', promptLen: 29 }); save();
+  res.json(r);
+});
+app.post('/api/playground', auth, async (req, res) => {
+  if (!req.body.debug) return run(req.uid, 'playground', req.body || {}, res);
+  const p = db.providers.find(p => p.userId === req.uid && p.name === req.body.model);
+  if (!p) return res.status(404).json({ error: 'Provider not found' });
+  res.json(await ask(p, toPrompt(req.body.messages), true));
+});
 app.get('/health', (_, res) => res.send('ok'));
 app.listen(process.env.PORT || 10000, () => console.log('RelayAPI up'));

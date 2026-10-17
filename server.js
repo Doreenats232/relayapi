@@ -7,6 +7,12 @@ let t; const save = () => { clearTimeout(t); t = setTimeout(() => fs.writeFile(F
 const id = () => crypto.randomBytes(8).toString('hex');
 const sha = s => crypto.createHash('sha256').update(s).digest('hex');
 const hashPw = (pw, salt) => crypto.scryptSync(pw, salt, 32).toString('hex');
+if (!db.secret) { db.secret = crypto.randomBytes(32).toString('hex'); save(); }
+const KEY = crypto.createHash('sha256').update(process.env.SECRET_KEY || db.secret).digest();
+const enc = t => { const iv = crypto.randomBytes(12), c = crypto.createCipheriv('aes-256-gcm', KEY, iv), d = Buffer.concat([c.update(t, 'utf8'), c.final()]); return [iv, c.getAuthTag(), d].map(b => b.toString('base64')).join('.'); };
+const dec = t => { const [iv, tag, d] = t.split('.').map(x => Buffer.from(x, 'base64')), c = crypto.createDecipheriv('aes-256-gcm', KEY, iv); c.setAuthTag(tag); return Buffer.concat([c.update(d), c.final()]).toString('utf8'); };
+const prov = p => { let cookieList = null; try { if (p.cookies) cookieList = JSON.parse(dec(p.cookies)); } catch {} return { ...p, cookieList }; };
+const parseCookies = raw => { if (!raw || !raw.trim()) return ''; let j; try { j = JSON.parse(raw); } catch { throw new Error('Cookies must be valid JSON (export with Cookie-Editor)'); } if (!Array.isArray(j) || !j.length) throw new Error('Cookies JSON must be a non-empty array'); return enc(JSON.stringify(j)); };
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 app.use((req, res, next) => { res.set('Access-Control-Allow-Origin', '*'); res.set('Access-Control-Allow-Headers', 'Authorization,Content-Type'); if (req.method === 'OPTIONS') return res.sendStatus(204); next(); });
@@ -34,14 +40,21 @@ function auth(req, res, next) {
 }
 
 // ---------- providers ----------
-app.get('/api/providers', auth, (req, res) => res.json(db.providers.filter(p => p.userId === req.uid)));
+app.get('/api/providers', auth, (req, res) => res.json(db.providers.filter(p => p.userId === req.uid).map(({ cookies, ...p }) => ({ ...p, hasSession: !!cookies }))));
 app.post('/api/providers', auth, (req, res) => {
-  const { name, url, inputSel, sendSel, responseSel } = req.body || {};
+  const { name, url, inputSel, sendSel, responseSel, cookies } = req.body || {};
+  let ck = ''; try { ck = parseCookies(cookies); } catch (e) { return res.status(400).json({ error: e.message }); }
   if (!name || !/^https?:\/\//.test(url || '')) return res.status(400).json({ error: 'Name and full URL (https://...) required' });
   const slug = name.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-|-$/g, '');
   if (db.providers.find(p => p.userId === req.uid && p.name === slug)) return res.status(409).json({ error: 'Provider name already used' });
-  const p = { id: id(), userId: req.uid, name: slug, url, inputSel: inputSel || '', sendSel: sendSel || '', responseSel: responseSel || '', created: Date.now() };
-  db.providers.push(p); save(); res.json(p);
+  const p = { id: id(), userId: req.uid, name: slug, url, inputSel: inputSel || '', sendSel: sendSel || '', responseSel: responseSel || '', cookies: ck, created: Date.now() };
+  db.providers.push(p); save(); res.json({ id: p.id, name: p.name });
+});
+app.put('/api/providers/:id/cookies', auth, (req, res) => {
+  const p = db.providers.find(p => p.id === req.params.id && p.userId === req.uid);
+  if (!p) return res.status(404).json({ error: 'Not found' });
+  try { p.cookies = parseCookies(req.body.cookies); } catch (e) { return res.status(400).json({ error: e.message }); }
+  p.lastTest = null; save(); res.json({ ok: 1 });
 });
 app.delete('/api/providers/:id', auth, (req, res) => { db.providers = db.providers.filter(p => !(p.id === req.params.id && p.userId === req.uid)); save(); res.json({ ok: 1 }); });
 
@@ -77,7 +90,7 @@ async function run(userId, keyId, body, res) {
   if (!p) return res.status(404).json({ error: { message: `Provider "${body.model}" not found. Add it in the dashboard.` } });
   if (!prompt) return res.status(400).json({ error: { message: 'messages required' } });
   try {
-    const text = await ask(p, prompt); log(true);
+    const text = await ask(prov(p), prompt); log(true);
     res.json({ id: 'chatcmpl-' + id(), object: 'chat.completion', created: Math.floor(Date.now() / 1000), model: p.name,
       choices: [{ index: 0, message: { role: 'assistant', content: text }, finish_reason: 'stop' }], usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 } });
   } catch (e) { log(false, e.message); res.status(502).json({ error: { message: 'Provider failed: ' + e.message } }); }
@@ -98,7 +111,7 @@ app.get('/v1/models', (req, res) => {
 app.post('/api/providers/:id/test', auth, async (req, res) => {
   const p = db.providers.find(p => p.id === req.params.id && p.userId === req.uid);
   if (!p) return res.status(404).json({ error: 'Not found' });
-  const t0 = Date.now(), r = await ask(p, 'Reply with only the word: PONG', true);
+  const t0 = Date.now(), r = await ask(prov(p), 'Reply with only the word: PONG', true);
   r.pass = !!(r.ok && /pong/i.test(r.text)); r.ms = Date.now() - t0; p.lastTest = { ok: r.pass, ts: Date.now() };
   db.logs.push({ ts: Date.now(), userId: req.uid, keyId: 'test', provider: p.name, ms: r.ms, ok: r.ok, err: r.error || '', promptLen: 29 }); save();
   res.json(r);
@@ -107,7 +120,7 @@ app.post('/api/playground', auth, async (req, res) => {
   if (!req.body.debug) return run(req.uid, 'playground', req.body || {}, res);
   const p = db.providers.find(p => p.userId === req.uid && p.name === req.body.model);
   if (!p) return res.status(404).json({ error: 'Provider not found' });
-  res.json(await ask(p, toPrompt(req.body.messages), true));
+  res.json(await ask(prov(p), toPrompt(req.body.messages), true));
 });
 app.get('/health', (_, res) => res.send('ok'));
 app.listen(process.env.PORT || 10000, () => console.log('RelayAPI up'));

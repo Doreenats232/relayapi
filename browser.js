@@ -21,9 +21,19 @@ async function doAsk(p, prompt, dbg) {
     ctx = await (await getBrowser()).newContext({
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
       viewport: { width: 1280, height: 800 } });
+    if (p.cookieList) {
+      const ck = p.cookieList.map(c => { const o = { name: c.name, value: String(c.value), path: c.path || '/', secure: !!c.secure, httpOnly: !!c.httpOnly };
+        if (c.domain) o.domain = c.domain; else o.url = p.url;
+        const e = c.expirationDate || c.expires; if (e && e > 0) o.expires = Math.floor(e);
+        const ss = String(c.sameSite || '').toLowerCase(); if (ss === 'no_restriction' || ss === 'none') o.sameSite = 'None'; else if (ss === 'lax') o.sameSite = 'Lax'; else if (ss === 'strict') o.sameSite = 'Strict';
+        return o; });
+      await ctx.addCookies(ck).catch(e => step('Cookie warning', false, e.message));
+      step('Session cookies loaded', true, ck.length + ' cookies');
+    }
     page = await ctx.newPage();
     await page.goto(p.url, { waitUntil: 'domcontentloaded', timeout: 45000 });
-    step('Page loaded', true, p.url + ' — title: ' + await page.title().catch(() => ''));
+    step('Page loaded', true, 'final URL: ' + page.url() + ' — title: ' + await page.title().catch(() => ''));
+    if (p.cookieList && /login|signin|sign-in|auth/i.test(page.url())) step('Login wall?', false, 'Redirected to a login page — session cookies expired or invalid');
     await page.waitForTimeout(3500);
     await shot('1. Page loaded');
     const sel = p.inputSel || 'textarea, [contenteditable="true"], [role="textbox"], input[type="text"]';

@@ -106,15 +106,39 @@ async function liveStart(p, owner) {
   touch(sid, s); live.set(sid, s); return sid;
 }
 function liveGet(sid, owner) { const s = live.get(sid); if (!s || s.owner !== owner) throw new Error('Live session ended'); touch(sid, s); return s; }
-async function liveFrame(sid, owner) { return liveGet(sid, owner).page.screenshot({ type: 'jpeg', quality: 55 }); }
-async function liveInput(sid, owner, d) {
-  const { page } = liveGet(sid, owner);
-  if (d.type === 'click') await page.mouse.click(Math.max(0, +d.x), Math.max(0, +d.y));
-  else if (d.type === 'text') await page.keyboard.type(String(d.text).slice(0, 2000), { delay: 15 });
-  else if (d.type === 'key') await page.keyboard.press(String(d.key).slice(0, 20));
-  else if (d.type === 'scroll') await page.mouse.wheel(0, +d.dy || 0);
+async function liveAttach(sid, owner, ws) {
+  const s = liveGet(sid, owner), { page, ctx } = s;
+  const send = o => ws.readyState === 1 && ws.send(JSON.stringify(o));
+  const cdp = await ctx.newCDPSession(page);
+  cdp.on('Page.screencastFrame', f => {
+    if (ws.readyState === 1 && ws.bufferedAmount < 700000) ws.send(Buffer.from(f.data, 'base64'));
+    cdp.send('Page.screencastFrameAck', { sessionId: f.sessionId }).catch(() => {});
+  });
+  await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 55, maxWidth: 1280, maxHeight: 800, everyNthFrame: 1 });
+  const onNav = fr => { if (fr === page.mainFrame()) send({ t: 'url', url: page.url() }); };
+  page.on('framenavigated', onNav); send({ t: 'url', url: page.url() });
+  let q = Promise.resolve(), pending = 0;
+  ws.on('message', raw => {
+    let d; try { d = JSON.parse(raw); } catch { return; }
+    touch(sid, s);
+    if (d.t === 'move' && pending > 2) return; // drop stale mouse moves under load
+    pending++; q = q.then(() => handle(page, d)).catch(() => {}).then(() => { pending--; });
+  });
+  ws.on('close', () => { page.off('framenavigated', onNav); cdp.send('Page.stopScreencast').catch(() => {}); cdp.detach().catch(() => {}); });
+}
+async function handle(page, d) {
+  const x = Math.max(0, Math.min(1280, +d.x || 0)), y = Math.max(0, Math.min(800, +d.y || 0));
+  if (d.t === 'move') await page.mouse.move(x, y);
+  else if (d.t === 'down') { await page.mouse.move(x, y); await page.mouse.down({ button: d.b === 2 ? 'right' : 'left' }); }
+  else if (d.t === 'up') { await page.mouse.move(x, y); await page.mouse.up({ button: d.b === 2 ? 'right' : 'left' }); }
+  else if (d.t === 'wheel') await page.mouse.wheel(0, Math.max(-1500, Math.min(1500, +d.dy || 0)));
+  else if (d.t === 'text') await page.keyboard.type(String(d.text).slice(0, 2000), { delay: 8 });
+  else if (d.t === 'key') await page.keyboard.press(String(d.key).slice(0, 20));
+  else if (d.t === 'nav') { let u = String(d.url || '').trim(); if (u && !/^https?:\/\//i.test(u)) u = 'https://' + u; if (u) page.goto(u, { waitUntil: 'domcontentloaded', timeout: 45000 }).catch(() => {}); }
+  else if (d.t === 'back') await page.goBack({ timeout: 15000 }).catch(() => {});
+  else if (d.t === 'reload') page.reload({ timeout: 45000 }).catch(() => {});
 }
 async function liveSave(sid, owner) { const s = liveGet(sid, owner), st = await s.ctx.storageState(); await liveClose(sid); return st; }
 async function liveClose(sid) { const s = live.get(sid); if (!s) return; clearTimeout(s.timer); live.delete(sid); await s.ctx.close().catch(() => {}); }
-module.exports = { ask, liveStart, liveFrame, liveInput, liveSave, liveClose, liveOwns: (sid, o) => live.get(sid)?.owner === o };
+module.exports = { ask, liveStart, liveAttach, liveSave, liveClose, liveOwns: (sid, o) => live.get(sid)?.owner === o };
 

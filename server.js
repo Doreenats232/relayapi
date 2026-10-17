@@ -1,5 +1,5 @@
 const express = require('express'), crypto = require('crypto'), fs = require('fs'), path = require('path');
-const { ask } = require('./browser');
+const B = require('./browser'); const ask = B.ask;
 const FILE = path.join(__dirname, 'data.json');
 let db = { users: [], sessions: {}, keys: [], providers: [], logs: [] };
 try { db = Object.assign(db, JSON.parse(fs.readFileSync(FILE, 'utf8'))); } catch {}
@@ -122,5 +122,22 @@ app.post('/api/playground', auth, async (req, res) => {
   if (!p) return res.status(404).json({ error: 'Provider not found' });
   res.json(await ask(prov(p), toPrompt(req.body.messages), true));
 });
+app.post('/api/providers/:id/live', auth, async (req, res) => {
+  const p = db.providers.find(p => p.id === req.params.id && p.userId === req.uid);
+  if (!p) return res.status(404).json({ error: 'Not found' });
+  try { res.json({ sid: await B.liveStart(prov(p), req.uid) }); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get('/api/live/:sid/frame', auth, async (req, res) => {
+  try { res.set('Content-Type', 'image/jpeg').send(await B.liveFrame(req.params.sid, req.uid)); } catch (e) { res.status(404).json({ error: e.message }); }
+});
+app.post('/api/live/:sid/input', auth, async (req, res) => {
+  try { await B.liveInput(req.params.sid, req.uid, req.body || {}); res.json({ ok: 1 }); } catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.post('/api/live/:sid/save', auth, async (req, res) => {
+  const p = db.providers.find(p => p.id === (req.body || {}).pid && p.userId === req.uid);
+  if (!p) return res.status(404).json({ error: 'Provider not found' });
+  try { const st = await B.liveSave(req.params.sid, req.uid); p.cookies = enc(JSON.stringify(st)); p.lastTest = null; save(); res.json({ ok: 1, cookies: st.cookies.length }); } catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.delete('/api/live/:sid', auth, async (req, res) => { if (B.liveOwns(req.params.sid, req.uid)) await B.liveClose(req.params.sid); res.json({ ok: 1 }); });
 app.get('/health', (_, res) => res.send('ok'));
 app.listen(process.env.PORT || 10000, () => console.log('RelayAPI up'));

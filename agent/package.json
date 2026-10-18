@@ -1,1 +1,0 @@
-{"name":"relayapi-agent","version":"1.0.0","main":"agent.js","dependencies":{"playwright-core":"1.47.2","ws":"8.18.0"}}

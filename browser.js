@@ -73,7 +73,7 @@ async function doAsk(p, prompt, dbg) {
       }
       src = 'auto-detect (new page text)';
       raw = await page.evaluate(() => document.body.innerText);
-      return tidy(raw.split('\n').map(s => s.trim()).filter(l => l && !bl.has(l) && !pl.has(l))).join('\n');
+      return tidy(raw.split('\n').map(s => s.trim()).filter(l => l && !beforeLines.has(l) && !promptLines.has(l))).join('\n');
     };
     let last = '', stable = 0, result = ''; const t1 = Date.now();
     while (Date.now() - t1 < 90000) {

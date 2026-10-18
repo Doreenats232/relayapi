@@ -96,7 +96,7 @@ const normCookies = (list, url) => list.map(c => { const o = { name: c.name, val
 const touch = (sid, s) => { clearTimeout(s.timer); s.timer = setTimeout(() => liveClose(sid), 10 * 60 * 1000); };
 async function liveStart(p, owner) {
   for (const [k, v] of live) if (v.owner === owner) await liveClose(k);
-  const opts = { userAgent: UA, viewport: { width: 1280, height: 800 } };
+  const opts = { userAgent: UA, viewport: { width: LW, height: LH } };
   if (p.cookieList && !Array.isArray(p.cookieList)) opts.storageState = p.cookieList;
   const ctx = await (await getBrowser()).newContext(opts);
   if (Array.isArray(p.cookieList)) await ctx.addCookies(normCookies(p.cookieList, p.url)).catch(() => {});
@@ -106,33 +106,41 @@ async function liveStart(p, owner) {
   touch(sid, s); live.set(sid, s); return sid;
 }
 function liveGet(sid, owner) { const s = live.get(sid); if (!s || s.owner !== owner) throw new Error('Live session ended'); touch(sid, s); return s; }
+const LW = 1024, LH = 640;
+const CAST = { low: { quality: 35, maxWidth: 720, maxHeight: 450 }, high: { quality: 60, maxWidth: 1024, maxHeight: 640 } };
+const clamp = (v, m) => Math.max(0, Math.min(m, +v || 0));
 async function liveAttach(sid, owner, ws) {
   const s = liveGet(sid, owner), { page, ctx } = s;
   const send = o => ws.readyState === 1 && ws.send(JSON.stringify(o));
   const cdp = await ctx.newCDPSession(page);
   cdp.on('Page.screencastFrame', f => {
-    if (ws.readyState === 1 && ws.bufferedAmount < 700000) ws.send(Buffer.from(f.data, 'base64'));
     cdp.send('Page.screencastFrameAck', { sessionId: f.sessionId }).catch(() => {});
+    if (ws.readyState === 1 && ws.bufferedAmount < 250000) ws.send(Buffer.from(f.data, 'base64')); // drop frames when the link is slow
   });
-  await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 55, maxWidth: 1280, maxHeight: 800, everyNthFrame: 1 });
+  let curQ = '';
+  const cast = async q => { q = q === 'high' ? 'high' : 'low'; if (q === curQ) return; curQ = q;
+    await cdp.send('Page.stopScreencast').catch(() => {});
+    await cdp.send('Page.startScreencast', { format: 'jpeg', everyNthFrame: 1, ...CAST[q] }); };
+  await cast('low');
   const onNav = fr => { if (fr === page.mainFrame()) send({ t: 'url', url: page.url() }); };
   page.on('framenavigated', onNav); send({ t: 'url', url: page.url() });
-  let q = Promise.resolve(), pending = 0;
+  let btn = 0, kq = Promise.resolve();
+  const mouse = (type, d, button, buttons, extra) => cdp.send('Input.dispatchMouseEvent', { type, x: clamp(d.x, LW), y: clamp(d.y, LH), button, buttons, ...extra }).catch(() => {});
   ws.on('message', raw => {
     let d; try { d = JSON.parse(raw); } catch { return; }
     touch(sid, s);
-    if (d.t === 'move' && pending > 2) return; // drop stale mouse moves under load
-    pending++; q = q.then(() => handle(page, d)).catch(() => {}).then(() => { pending--; });
+    const bn = d.b === 2 ? 'right' : 'left';
+    if (d.t === 'move') mouse('mouseMoved', d, btn ? (btn === 2 ? 'right' : 'left') : 'none', btn);
+    else if (d.t === 'down') { btn = d.b === 2 ? 2 : 1; mouse('mousePressed', d, bn, btn, { clickCount: 1 }); }
+    else if (d.t === 'up') { mouse('mouseReleased', d, bn, 0, { clickCount: 1 }); btn = 0; }
+    else if (d.t === 'wheel') mouse('mouseWheel', d, 'none', btn, { deltaX: 0, deltaY: Math.max(-1500, Math.min(1500, +d.dy || 0)) });
+    else if (d.t === 'quality') cast(d.q).catch(() => {});
+    else kq = kq.then(() => handle(page, d)).catch(() => {});
   });
   ws.on('close', () => { page.off('framenavigated', onNav); cdp.send('Page.stopScreencast').catch(() => {}); cdp.detach().catch(() => {}); });
 }
 async function handle(page, d) {
-  const x = Math.max(0, Math.min(1280, +d.x || 0)), y = Math.max(0, Math.min(800, +d.y || 0));
-  if (d.t === 'move') await page.mouse.move(x, y);
-  else if (d.t === 'down') { await page.mouse.move(x, y); await page.mouse.down({ button: d.b === 2 ? 'right' : 'left' }); }
-  else if (d.t === 'up') { await page.mouse.move(x, y); await page.mouse.up({ button: d.b === 2 ? 'right' : 'left' }); }
-  else if (d.t === 'wheel') await page.mouse.wheel(0, Math.max(-1500, Math.min(1500, +d.dy || 0)));
-  else if (d.t === 'text') await page.keyboard.type(String(d.text).slice(0, 2000), { delay: 8 });
+  if (d.t === 'text') await page.keyboard.type(String(d.text).slice(0, 2000), { delay: 8 });
   else if (d.t === 'key') await page.keyboard.press(String(d.key).slice(0, 20));
   else if (d.t === 'nav') { let u = String(d.url || '').trim(); if (u && !/^https?:\/\//i.test(u)) u = 'https://' + u; if (u) page.goto(u, { waitUntil: 'domcontentloaded', timeout: 45000 }).catch(() => {}); }
   else if (d.t === 'back') await page.goBack({ timeout: 15000 }).catch(() => {});

@@ -2,6 +2,9 @@ const { chromium } = require('playwright-core');
 const crypto = require('crypto');
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
 let browser; const queues = new Map();
+const HINTS = { 'chat.deepseek.com': '.ds-markdown' }; // known reply containers (used only if present on the page)
+const BOILER = /^(AI-generated, for reference only|Copy|Regenerate|Share|Like|Dislike|Retry|Read aloud|Edit message)$/i;
+const tidy = lines => lines.filter((l, i) => l && !BOILER.test(l) && l !== lines[i - 1]);
 const cl = v => { v = String(v || '').trim(); return /^(blank|auto|none|optional|n\/a)\b|press enter|auto-detect/i.test(v) ? '' : v; }; // ignore placeholder text pasted into selector fields
 async function getBrowser() {
   if (!browser || !browser.isConnected())
@@ -59,14 +62,18 @@ async function doAsk(p, prompt, dbg) {
     step('Message sent', true, sent ? 'clicked ' + sendSel : 'pressed Enter');
     const beforeLines = new Set(before.split('\n').map(s => s.trim()));
     const promptLines = new Set(prompt.split('\n').map(s => s.trim()));
+    let rsel = cl(p.responseSel), hinted = false;
+    if (!rsel) { try { rsel = HINTS[new URL(p.url).hostname] || ''; hinted = !!rsel; } catch {} }
+    let src = 'auto-detect (new page text)';
     const read = async () => {
-      if (cl(p.responseSel)) {
-        const els = page.locator(cl(p.responseSel)), n = await els.count();
-        return n ? (await els.nth(n - 1).innerText()).trim() : '';
+      if (rsel) {
+        const els = page.locator(rsel), n = await els.count();
+        if (n) { src = 'selector ' + rsel; return (await els.nth(n - 1).innerText()).trim(); }
+        if (!hinted) return '';
       }
-      const after = await page.evaluate(() => document.body.innerText);
-      raw = after;
-      return after.split('\n').map(s => s.trim()).filter(l => l && !beforeLines.has(l) && !promptLines.has(l)).join('\n');
+      src = 'auto-detect (new page text)';
+      raw = await page.evaluate(() => document.body.innerText);
+      return tidy(raw.split('\n').map(s => s.trim()).filter(l => l && !bl.has(l) && !pl.has(l))).join('\n');
     };
     let last = '', stable = 0, result = ''; const t1 = Date.now();
     while (Date.now() - t1 < 90000) {
@@ -76,7 +83,7 @@ async function doAsk(p, prompt, dbg) {
     }
     if (!result && last) result = last;
     if (!result) throw new Error('Timed out waiting for reply (no new text appeared)');
-    step('Reply detected', true, `${result.length} chars, stable for 4s, took ${Math.round((Date.now() - t1) / 1000)}s`);
+    step('Reply detected', true, `${result.length} chars via ${src}, took ${Math.round((Date.now() - t1) / 1000)}s`);
     await shot('3. Reply received');
     return dbg ? { ok: true, text: result, raw: raw.slice(-4000), selector: selInfo, trace, shots } : result;
   } catch (e) {

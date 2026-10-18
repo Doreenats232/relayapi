@@ -26,7 +26,24 @@ let KEY; const getKey = () => KEY || (KEY = crypto.createHash('sha256').update(p
 const enc = t => { const iv = crypto.randomBytes(12), c = crypto.createCipheriv('aes-256-gcm', getKey(), iv), d = Buffer.concat([c.update(t, 'utf8'), c.final()]); return [iv, c.getAuthTag(), d].map(b => b.toString('base64')).join('.'); };
 const dec = t => { const [iv, tag, d] = t.split('.').map(x => Buffer.from(x, 'base64')), c = crypto.createDecipheriv('aes-256-gcm', getKey(), iv); c.setAuthTag(tag); return Buffer.concat([c.update(d), c.final()]).toString('utf8'); };
 const prov = p => { let cookieList = null; try { if (p.cookies) cookieList = JSON.parse(dec(p.cookies)); } catch {} return { ...p, cookieList }; };
-const parseCookies = raw => { if (!raw || !raw.trim()) return ''; let j; try { j = JSON.parse(raw); } catch { throw new Error('Cookies must be valid JSON (export with Cookie-Editor)'); } if (!Array.isArray(j) || !j.length) throw new Error('Cookies JSON must be a non-empty array'); return enc(JSON.stringify(j)); };
+const buildState = (raw, storageRaw, url) => {
+  let cookies = [], ls = [];
+  if (raw && raw.trim()) {
+    let j; try { j = JSON.parse(raw); } catch { throw new Error('Cookies must be valid JSON (Cookie-Editor → Export → JSON)'); }
+    if (!Array.isArray(j)) throw new Error('Cookies JSON must be a list (starts with [ )');
+    const SS = { no_restriction: 'None', none: 'None', lax: 'Lax', strict: 'Strict' };
+    cookies = j.filter(c => c && c.name && c.domain).slice(0, 400).map(c => { const sameSite = SS[String(c.sameSite || '').toLowerCase()], e = Number(c.expirationDate || c.expires);
+      return { name: String(c.name), value: String(c.value ?? ''), domain: String(c.domain), path: String(c.path || '/'), expires: e > 0 ? Math.floor(e) : -1, httpOnly: !!c.httpOnly, secure: !!c.secure || sameSite === 'None', ...(sameSite ? { sameSite } : {}) }; });
+  }
+  if (storageRaw && storageRaw.trim()) {
+    let o; try { o = JSON.parse(storageRaw); } catch { throw new Error('Local storage must be valid JSON (from copy(JSON.stringify(localStorage)))'); }
+    if (!o || typeof o !== 'object' || Array.isArray(o)) throw new Error('Local storage JSON must look like {"key":"value"}');
+    ls = Object.entries(o).slice(0, 300).map(([name, v]) => ({ name, value: (typeof v === 'string' ? v : JSON.stringify(v)).slice(0, 20000) }));
+  }
+  if (!cookies.length && !ls.length) return '';
+  let origin = ''; try { origin = new URL(url).origin; } catch {}
+  return enc(JSON.stringify({ cookies, origins: ls.length && origin ? [{ origin, localStorage: ls }] : [] }));
+};
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 app.use((req, res, next) => { res.set('Access-Control-Allow-Origin', '*'); res.set('Access-Control-Allow-Headers', 'Authorization,Content-Type'); if (req.method === 'OPTIONS') return res.sendStatus(204); next(); });
@@ -72,7 +89,7 @@ function auth(req, res, next) {
 app.get('/api/providers', auth, (req, res) => res.json(db.providers.filter(p => p.userId === req.uid).map(({ cookies, ...p }) => ({ ...p, hasSession: !!cookies }))));
 app.post('/api/providers', auth, (req, res) => {
   const { name, url, inputSel, sendSel, responseSel, cookies } = req.body || {};
-  let ck = ''; try { ck = parseCookies(cookies); } catch (e) { return res.status(400).json({ error: e.message }); }
+  let ck = ''; try { ck = buildState(cookies, req.body.storage, url); } catch (e) { return res.status(400).json({ error: e.message }); }
   if (!name || !/^https?:\/\//.test(url || '')) return res.status(400).json({ error: 'Name and full URL (https://...) required' });
   const slug = name.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-|-$/g, '');
   if (db.providers.find(p => p.userId === req.uid && p.name === slug)) return res.status(409).json({ error: 'Provider name already used' });
@@ -82,7 +99,7 @@ app.post('/api/providers', auth, (req, res) => {
 app.put('/api/providers/:id/cookies', auth, (req, res) => {
   const p = db.providers.find(p => p.id === req.params.id && p.userId === req.uid);
   if (!p) return res.status(404).json({ error: 'Not found' });
-  try { p.cookies = parseCookies(req.body.cookies); } catch (e) { return res.status(400).json({ error: e.message }); }
+  try { p.cookies = buildState(req.body.cookies, req.body.storage, p.url); } catch (e) { return res.status(400).json({ error: e.message }); }
   p.lastTest = null; save(); res.json({ ok: 1 });
 });
 app.delete('/api/providers/:id', auth, (req, res) => { db.providers = db.providers.filter(p => !(p.id === req.params.id && p.userId === req.uid)); save(); res.json({ ok: 1 }); });

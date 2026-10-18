@@ -69,16 +69,9 @@ function auth(req, res, next) {
 }
 
 // ---------- providers ----------
-app.get('/api/providers', auth, (req, res) => res.json(db.providers.filter(p => p.userId === req.uid).map(({ cookies, apiKey, ...p }) => ({ ...p, hasSession: !!cookies }))));
+app.get('/api/providers', auth, (req, res) => res.json(db.providers.filter(p => p.userId === req.uid).map(({ cookies, ...p }) => ({ ...p, hasSession: !!cookies }))));
 app.post('/api/providers', auth, (req, res) => {
-  const { name, url, inputSel, sendSel, responseSel, cookies, type, baseUrl, apiKey, upstreamModel } = req.body || {};
-  if (type === 'api') {
-    if (!name || !upstreamModel || !apiKey || !okUpstream(baseUrl)) return res.status(400).json({ error: 'Name, https base URL, API key and model are required' });
-    const slug = name.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-|-$/g, '');
-    if (db.providers.find(p => p.userId === req.uid && p.name === slug)) return res.status(409).json({ error: 'Provider name already used' });
-    const p = { id: id(), userId: req.uid, type: 'api', name: slug, url: baseUrl, baseUrl: baseUrl.replace(/\/$/, ''), apiKey: enc(String(apiKey).trim()), upstreamModel: String(upstreamModel).trim(), created: Date.now() };
-    db.providers.push(p); save(); return res.json({ id: p.id, name: p.name });
-  }
+  const { name, url, inputSel, sendSel, responseSel, cookies } = req.body || {};
   let ck = ''; try { ck = parseCookies(cookies); } catch (e) { return res.status(400).json({ error: e.message }); }
   if (!name || !/^https?:\/\//.test(url || '')) return res.status(400).json({ error: 'Name and full URL (https://...) required' });
   const slug = name.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-|-$/g, '');
@@ -113,39 +106,6 @@ app.get('/api/stats', auth, (req, res) => {
 app.get('/api/logs', auth, (req, res) => res.json(db.logs.filter(l => l.userId === req.uid).slice(-100).reverse()));
 
 // ---------- gateway ----------
-const publicHost = h => !/^(localhost|.*\.(local|internal)|127\.|10\.|0\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[?::1?\]?$|\[?f[cd][0-9a-f]{2}:)/i.test(h) && h.includes('.');
-const okUpstream = u => { try { const x = new URL(u); return process.env.ALLOW_LOCAL_UPSTREAM === '1' || (x.protocol === 'https:' && publicHost(x.hostname)); } catch { return false; } };
-async function apiAsk(p, body) {
-  const payload = { model: p.upstreamModel, messages: body.messages };
-  for (const k of ['temperature', 'max_tokens', 'top_p', 'stop']) if (body[k] !== undefined) payload[k] = body[k];
-  const ctl = new AbortController(), tm = setTimeout(() => ctl.abort(), 90000);
-  try {
-    const r = await fetch(p.baseUrl.replace(/\/$/, '') + '/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + dec(p.apiKey) }, body: JSON.stringify(payload), signal: ctl.signal });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error('Upstream ' + r.status + ': ' + String((j.error && j.error.message) || j.message || JSON.stringify(j)).slice(0, 200));
-    const text = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
-    if (text == null) throw new Error('Upstream returned no content');
-    return { text, usage: j.usage };
-  } catch (e) { throw new Error(e.name === 'AbortError' ? 'Upstream timed out' : e.message); } finally { clearTimeout(tm); }
-}
-async function apiDebug(p, messages) {
-  const t0 = Date.now(), trace = [];
-  try {
-    trace.push({ step: 'Request sent', ok: true, detail: p.baseUrl + '/chat/completions  model=' + p.upstreamModel, t: 0 });
-    const r = await apiAsk(p, { messages });
-    trace.push({ step: 'Reply received', ok: true, detail: r.text.length + ' chars', t: Date.now() - t0 });
-    return { ok: true, type: 'api', text: r.text, trace, shots: [], selector: '', raw: '' };
-  } catch (e) { trace.push({ step: 'Failed', ok: false, detail: e.message, t: Date.now() - t0 }); return { ok: false, type: 'api', error: e.message, trace, shots: [], raw: '' }; }
-}
-function sendCompletion(res, body, text, model, usage) {
-  const cid = 'chatcmpl-' + id(), created = Math.floor(Date.now() / 1000);
-  if (body.stream) {
-    res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
-    const ch = (delta, fr) => 'data: ' + JSON.stringify({ id: cid, object: 'chat.completion.chunk', created, model, choices: [{ index: 0, delta, finish_reason: fr }] }) + '\n\n';
-    res.write(ch({ role: 'assistant', content: text }, null)); res.write(ch({}, 'stop')); return res.end('data: [DONE]\n\n');
-  }
-  res.json({ id: cid, object: 'chat.completion', created, model, choices: [{ index: 0, message: { role: 'assistant', content: text }, finish_reason: 'stop' }], usage: usage || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 } });
-}
 const buckets = {};
 function toPrompt(messages) {
   if (!Array.isArray(messages) || !messages.length) return '';
@@ -159,9 +119,9 @@ async function run(userId, keyId, body, res) {
   if (!p) return res.status(404).json({ error: { message: `Provider "${body.model}" not found. Add it in the dashboard.` } });
   if (!prompt) return res.status(400).json({ error: { message: 'messages required' } });
   try {
-    let text, usage;
-    if (p.type === 'api') ({ text, usage } = await apiAsk(p, body)); else text = await ask(prov(p), prompt);
-    log(true); sendCompletion(res, body, text, p.name, usage);
+    const text = await ask(prov(p), prompt); log(true);
+    res.json({ id: 'chatcmpl-' + id(), object: 'chat.completion', created: Math.floor(Date.now() / 1000), model: p.name,
+      choices: [{ index: 0, message: { role: 'assistant', content: text }, finish_reason: 'stop' }], usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 } });
   } catch (e) { log(false, e.message); res.status(502).json({ error: { message: 'Provider failed: ' + e.message } }); }
 }
 app.post('/v1/chat/completions', (req, res) => {
@@ -180,7 +140,7 @@ app.get('/v1/models', (req, res) => {
 app.post('/api/providers/:id/test', auth, async (req, res) => {
   const p = db.providers.find(p => p.id === req.params.id && p.userId === req.uid);
   if (!p) return res.status(404).json({ error: 'Not found' });
-  const t0 = Date.now(), r = p.type === 'api' ? await apiDebug(p, [{ role: 'user', content: 'Reply with only the word: PONG' }]) : await ask(prov(p), 'Reply with only the word: PONG', true);
+  const t0 = Date.now(), r = await ask(prov(p), 'Reply with only the word: PONG', true);
   r.pass = !!(r.ok && /pong/i.test(r.text)); r.ms = Date.now() - t0; p.lastTest = { ok: r.pass, ts: Date.now() };
   db.logs.push({ ts: Date.now(), userId: req.uid, keyId: 'test', provider: p.name, ms: r.ms, ok: r.ok, err: r.error || '', promptLen: 29 }); save();
   res.json(r);
@@ -189,7 +149,7 @@ app.post('/api/playground', auth, async (req, res) => {
   if (!req.body.debug) return run(req.uid, 'playground', req.body || {}, res);
   const p = db.providers.find(p => p.userId === req.uid && p.name === req.body.model);
   if (!p) return res.status(404).json({ error: 'Provider not found' });
-  res.json(p.type === 'api' ? await apiDebug(p, req.body.messages) : await ask(prov(p), toPrompt(req.body.messages), true));
+  res.json(await ask(prov(p), toPrompt(req.body.messages), true));
 });
 app.post('/api/providers/:id/live', auth, async (req, res) => {
   const p = db.providers.find(p => p.id === req.params.id && p.userId === req.uid);

@@ -4,7 +4,7 @@ const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 let browser; const queues = new Map();
 async function getBrowser() {
   if (!browser || !browser.isConnected())
-    browser = await chromium.launch({ args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'] });
+    browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || undefined, args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'] });
   return browser;
 }
 // one request at a time per provider (each gets a fresh page = fresh chat)

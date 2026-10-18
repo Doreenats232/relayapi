@@ -2,15 +2,29 @@ const express = require('express'), crypto = require('crypto'), fs = require('fs
 const B = require('./browser'); const ask = B.ask;
 const FILE = path.join(__dirname, 'data.json');
 let db = { users: [], sessions: {}, keys: [], providers: [], logs: [] };
-try { db = Object.assign(db, JSON.parse(fs.readFileSync(FILE, 'utf8'))); } catch {}
-let t; const save = () => { clearTimeout(t); t = setTimeout(() => fs.writeFile(FILE, JSON.stringify(db), () => {}), 300); };
+const TURSO = process.env.TURSO_URL && process.env.TURSO_TOKEN ? require('@libsql/client').createClient({ url: process.env.TURSO_URL, authToken: process.env.TURSO_TOKEN }) : null;
+async function loadDb() {
+  if (TURSO) {
+    await TURSO.execute('CREATE TABLE IF NOT EXISTS relayapi_kv (k TEXT PRIMARY KEY, v TEXT)');
+    const r = await TURSO.execute({ sql: 'SELECT v FROM relayapi_kv WHERE k = ?', args: ['db'] });
+    if (r.rows[0]) Object.assign(db, JSON.parse(r.rows[0].v));
+    console.log('Storage: Turso (persistent)');
+  } else {
+    try { Object.assign(db, JSON.parse(fs.readFileSync(FILE, 'utf8'))); } catch {}
+    console.log('Storage: local file — WIPED on every Render restart. Set TURSO_URL + TURSO_TOKEN to persist.');
+  }
+}
+const persist = () => TURSO
+  ? TURSO.execute({ sql: 'INSERT OR REPLACE INTO relayapi_kv (k, v) VALUES (?, ?)', args: ['db', JSON.stringify(db)] }).catch(e => console.log('Save failed:', e.message))
+  : new Promise(r => fs.writeFile(FILE, JSON.stringify(db), r));
+let t; const save = () => { clearTimeout(t); t = setTimeout(persist, 500); };
+const flush = async () => { clearTimeout(t); await persist(); };
 const id = () => crypto.randomBytes(8).toString('hex');
 const sha = s => crypto.createHash('sha256').update(s).digest('hex');
 const hashPw = (pw, salt) => crypto.scryptSync(pw, salt, 32).toString('hex');
-if (!db.secret) { db.secret = crypto.randomBytes(32).toString('hex'); save(); }
-const KEY = crypto.createHash('sha256').update(process.env.SECRET_KEY || db.secret).digest();
-const enc = t => { const iv = crypto.randomBytes(12), c = crypto.createCipheriv('aes-256-gcm', KEY, iv), d = Buffer.concat([c.update(t, 'utf8'), c.final()]); return [iv, c.getAuthTag(), d].map(b => b.toString('base64')).join('.'); };
-const dec = t => { const [iv, tag, d] = t.split('.').map(x => Buffer.from(x, 'base64')), c = crypto.createDecipheriv('aes-256-gcm', KEY, iv); c.setAuthTag(tag); return Buffer.concat([c.update(d), c.final()]).toString('utf8'); };
+let KEY; const getKey = () => KEY || (KEY = crypto.createHash('sha256').update(process.env.SECRET_KEY || db.secret).digest());
+const enc = t => { const iv = crypto.randomBytes(12), c = crypto.createCipheriv('aes-256-gcm', getKey(), iv), d = Buffer.concat([c.update(t, 'utf8'), c.final()]); return [iv, c.getAuthTag(), d].map(b => b.toString('base64')).join('.'); };
+const dec = t => { const [iv, tag, d] = t.split('.').map(x => Buffer.from(x, 'base64')), c = crypto.createDecipheriv('aes-256-gcm', getKey(), iv); c.setAuthTag(tag); return Buffer.concat([c.update(d), c.final()]).toString('utf8'); };
 const agents = new Map(), jobs = new Map();
 const route = (p, prompt, dbg) => p.runner === 'agent' ? agentAsk(p, prompt, dbg) : ask(prov(p), prompt, dbg);
 function agentAsk(p, prompt, dbg) {
@@ -130,7 +144,7 @@ function toPrompt(messages) {
 async function run(userId, keyId, body, res) {
   const t0 = Date.now(), prompt = toPrompt(body.messages);
   const p = db.providers.find(p => p.userId === userId && p.name === body.model);
-  const log = (ok, err) => { db.logs.push({ ts: Date.now(), userId, keyId, provider: body.model, ms: Date.now() - t0, ok, err: err || '', promptLen: prompt.length }); if (db.logs.length > 5000) db.logs.splice(0, 1000); save(); };
+  const log = (ok, err) => { db.logs.push({ ts: Date.now(), userId, keyId, provider: body.model, ms: Date.now() - t0, ok, err: err || '', promptLen: prompt.length }); if (db.logs.length > 1500) db.logs.splice(0, 500); save(); };
   if (!p) return res.status(404).json({ error: { message: `Provider "${body.model}" not found. Add it in the dashboard.` } });
   if (!prompt) return res.status(400).json({ error: { message: 'messages required' } });
   try {
@@ -185,4 +199,8 @@ server.on('upgrade', (req, sock, head) => {
   if (u.pathname !== '/live' || !uid || !B.liveOwns(sid, uid)) return sock.destroy();
   wss.handleUpgrade(req, sock, head, ws => B.liveAttach(sid, uid, ws).catch(() => ws.close()));
 });
-server.listen(process.env.PORT || 10000, () => console.log('RelayAPI up'));
+loadDb().then(() => {
+  if (!db.secret) { db.secret = crypto.randomBytes(32).toString('hex'); save(); }
+  server.listen(process.env.PORT || 10000, () => console.log('RelayAPI up'));
+}).catch(e => { console.error('FATAL: could not load storage —', e.message); process.exit(1); });
+process.on('SIGTERM', async () => { await flush(); process.exit(0); });

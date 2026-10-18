@@ -8,3 +8,9 @@ Run `agent/` on your own PC: it drives your real Chrome (home IP). You pass any 
 
 ## RelayAPI Connector (Chrome extension)
 `chrome://extensions` → Developer mode → Load unpacked → `extension/`. Then on a provider press **Log in**: the real site opens in a new tab, you log in / pass the check, click the **Done** banner, and you're returned to RelayAPI with the session saved.
+
+## Persistent storage (important on Render free tier)
+Without a database, `data.json` is wiped on every restart. Set these env vars on Render:
+- `TURSO_URL` (e.g. `libsql://yourdb-you.turso.io`) and `TURSO_TOKEN` — stores everything in one table `relayapi_kv` (safe to share an existing Turso DB)
+- `SECRET_KEY` — any long random string; encrypts saved sessions
+- optional `CHROME_PATH` — custom Chromium binary

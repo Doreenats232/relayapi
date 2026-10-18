@@ -78,6 +78,18 @@ app.put('/api/providers/:id/cookies', auth, (req, res) => {
   try { p.cookies = parseCookies(req.body.cookies); } catch (e) { return res.status(400).json({ error: e.message }); }
   p.lastTest = null; save(); res.json({ ok: 1 });
 });
+app.post('/api/providers/:id/session', auth, (req, res) => {
+  const p = db.providers.find(p => p.id === req.params.id && p.userId === req.uid);
+  if (!p) return res.status(404).json({ error: 'Provider not found' });
+  const { state, ua } = req.body || {};
+  if (!state || !Array.isArray(state.cookies)) return res.status(400).json({ error: 'Bad session data' });
+  const okSS = { None: 1, Lax: 1, Strict: 1 };
+  const cookies = state.cookies.slice(0, 400).filter(c => c && c.name && c.domain).map(c => { const sameSite = okSS[c.sameSite] ? c.sameSite : 'Lax';
+    return { name: String(c.name), value: String(c.value ?? ''), domain: String(c.domain), path: String(c.path || '/'), expires: Number(c.expires) > 0 ? Math.floor(c.expires) : -1, httpOnly: !!c.httpOnly, secure: !!c.secure || sameSite === 'None', sameSite }; });
+  const origins = (Array.isArray(state.origins) ? state.origins : []).slice(0, 5).map(o => ({ origin: String(o.origin), localStorage: (o.localStorage || []).slice(0, 200).map(x => ({ name: String(x.name), value: String(x.value).slice(0, 20000) })) }));
+  p.cookies = enc(JSON.stringify({ cookies, origins })); p.ua = typeof ua === 'string' ? ua.slice(0, 300) : ''; p.lastTest = null; save();
+  res.json({ ok: 1, cookies: cookies.length });
+});
 app.put('/api/providers/:id/runner', auth, (req, res) => {
   const p = db.providers.find(p => p.id === req.params.id && p.userId === req.uid);
   if (!p) return res.status(404).json({ error: 'Not found' });

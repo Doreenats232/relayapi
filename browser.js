@@ -21,7 +21,7 @@ async function doAsk(p, prompt, dbg) {
   const shot = async label => { if (!dbg || !page) return; try { shots.push({ label, img: (await page.screenshot({ type: 'jpeg', quality: 45 })).toString('base64') }); } catch {} };
   try {
     ctx = await (await getBrowser()).newContext({
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+      userAgent: p.ua || UA,
       viewport: { width: 1280, height: 800 },
       ...(p.cookieList && !Array.isArray(p.cookieList) ? { storageState: p.cookieList } : {}) });
     if (p.cookieList && !Array.isArray(p.cookieList)) step('Saved browser session loaded', true, (p.cookieList.cookies || []).length + ' cookies');
@@ -96,7 +96,7 @@ const normCookies = (list, url) => list.map(c => { const o = { name: c.name, val
 const touch = (sid, s) => { clearTimeout(s.timer); s.timer = setTimeout(() => liveClose(sid), 10 * 60 * 1000); };
 async function liveStart(p, owner) {
   for (const [k, v] of live) if (v.owner === owner) await liveClose(k);
-  const opts = { userAgent: UA, viewport: { width: LW, height: LH } };
+  const opts = { userAgent: p.ua || UA, viewport: { width: LW, height: LH } };
   if (p.cookieList && !Array.isArray(p.cookieList)) opts.storageState = p.cookieList;
   const ctx = await (await getBrowser()).newContext(opts);
   if (Array.isArray(p.cookieList)) await ctx.addCookies(normCookies(p.cookieList, p.url)).catch(() => {});

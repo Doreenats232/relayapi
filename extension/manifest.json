@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "RelayAPI Connector",
+  "version": "1.0.0",
+  "description": "Log into an AI site in a normal tab, then send the session back to your RelayAPI.",
+  "permissions": ["cookies", "tabs", "scripting", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "Send this tab's session to RelayAPI" },
+  "content_scripts": [{
+    "matches": ["https://*.onrender.com/*", "http://localhost/*", "http://localhost:*/*"],
+    "js": ["bridge.js"], "run_at": "document_idle"
+  }]
+}

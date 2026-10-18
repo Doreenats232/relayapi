@@ -40,9 +40,24 @@ app.post('/api/signup', (req, res) => {
   const salt = id(), u = { id: id(), email: email.toLowerCase(), salt, hash: hashPw(password, salt), created: Date.now() };
   db.users.push(u); save(); res.json({ token: session(u.id), email: u.email });
 });
+const GCID = process.env.GOOGLE_CLIENT_ID || '';
+app.get('/api/config', (req, res) => res.json({ googleClientId: GCID }));
+app.post('/api/google', async (req, res) => {
+  if (!GCID) return res.status(400).json({ error: 'Google sign-in is not configured' });
+  try {
+    const r = await fetch((process.env.GOOGLE_TOKENINFO_URL || 'https://oauth2.googleapis.com/tokeninfo') + '?id_token=' + encodeURIComponent((req.body || {}).credential || ''));
+    const g = await r.json();
+    if (!r.ok || g.aud !== GCID || !/accounts\.google\.com$/.test(g.iss || '') || String(g.email_verified) !== 'true' || +g.exp < Date.now() / 1000) return res.status(401).json({ error: 'Google sign-in failed' });
+    const em = String(g.email).toLowerCase(); let u = db.users.find(x => x.email === em);
+    if (!u) { u = { id: id(), email: em, google: true, created: Date.now() }; db.users.push(u); }
+    u.name = g.name || u.name; u.picture = g.picture || u.picture; save();
+    res.json({ token: session(u.id), email: u.email, name: u.name, picture: u.picture });
+  } catch (e) { res.status(502).json({ error: 'Could not reach Google' }); }
+});
 app.post('/api/login', (req, res) => {
   const { email, password } = req.body || {};
   const u = db.users.find(x => x.email === (email || '').toLowerCase());
+  if (u && !u.salt) return res.status(401).json({ error: 'This account uses Google sign-in' });
   if (!u || hashPw(password || '', u.salt) !== u.hash) return res.status(401).json({ error: 'Wrong email or password' });
   res.json({ token: session(u.id), email: u.email });
 });

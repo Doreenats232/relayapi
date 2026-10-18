@@ -7,3 +7,9 @@ Without a database, `data.json` is wiped on every restart. Set these env vars on
 - `TURSO_URL` (e.g. `libsql://yourdb-you.turso.io`) and `TURSO_TOKEN` — stores everything in one table `relayapi_kv` (safe to share an existing Turso DB)
 - `SECRET_KEY` — any long random string; encrypts saved sessions
 - optional `CHROME_PATH` — custom Chromium binary
+
+## Sign in with Google (optional)
+1. console.cloud.google.com → APIs & Services → **OAuth consent screen** (External, fill app name/email, then **Publish app**).
+2. **Credentials → Create credentials → OAuth client ID → Web application**. Add your site URL (e.g. `https://relayapi-xxxx.onrender.com`) under **Authorized JavaScript origins**.
+3. Copy the Client ID into Render env var `GOOGLE_CLIENT_ID` and redeploy. (No client secret needed.)
+Email/password stays available under "Use email & password instead".

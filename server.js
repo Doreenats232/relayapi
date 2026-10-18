@@ -88,7 +88,7 @@ function auth(req, res, next) {
 // ---------- providers ----------
 app.get('/api/providers', auth, (req, res) => res.json(db.providers.filter(p => p.userId === req.uid).map(({ cookies, ...p }) => ({ ...p, hasSession: !!cookies }))));
 app.post('/api/providers', auth, (req, res) => {
-  const { name, url, inputSel, sendSel, responseSel, cookies } = req.body || {};
+  const { name, url, cookies } = req.body || {}, cl = v => /^(blank|auto|none|optional|n\/a)\b|press enter|auto-detect/i.test(String(v || '').trim()) ? '' : String(v || '').trim(), inputSel = cl(req.body.inputSel), sendSel = cl(req.body.sendSel), responseSel = cl(req.body.responseSel);
   let ck = ''; try { ck = buildState(cookies, req.body.storage, url); } catch (e) { return res.status(400).json({ error: e.message }); }
   if (!name || !/^https?:\/\//.test(url || '')) return res.status(400).json({ error: 'Name and full URL (https://...) required' });
   const slug = name.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-|-$/g, '');

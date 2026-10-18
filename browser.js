@@ -2,6 +2,7 @@ const { chromium } = require('playwright-core');
 const crypto = require('crypto');
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
 let browser; const queues = new Map();
+const cl = v => { v = String(v || '').trim(); return /^(blank|auto|none|optional|n\/a)\b|press enter|auto-detect/i.test(v) ? '' : v; }; // ignore placeholder text pasted into selector fields
 async function getBrowser() {
   if (!browser || !browser.isConnected())
     browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || undefined, args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'] });
@@ -40,7 +41,7 @@ async function doAsk(p, prompt, dbg) {
     if (p.cookieList && /login|signin|sign-in|auth/i.test(page.url())) step('Login wall?', false, 'Redirected to a login page — session cookies expired or invalid');
     await page.waitForTimeout(3500);
     await shot('1. Page loaded');
-    const sel = p.inputSel || 'textarea, [contenteditable="true"], [role="textbox"], input[type="text"]';
+    const sel = cl(p.inputSel) || 'textarea, [contenteditable="true"], [role="textbox"], input[type="text"]';
     const box = page.locator(sel).first();
     const count = await page.locator(sel).count();
     await box.waitFor({ state: 'visible', timeout: 25000 });
@@ -52,13 +53,15 @@ async function doAsk(p, prompt, dbg) {
     await page.waitForTimeout(400);
     step('Message typed', true, `${prompt.length} chars`);
     await shot('2. Message typed into their text box');
-    if (p.sendSel) await page.click(p.sendSel); else await page.keyboard.press('Enter');
-    step('Message sent', true, p.sendSel ? 'clicked ' + p.sendSel : 'pressed Enter');
+    const sendSel = cl(p.sendSel); let sent = false;
+    if (sendSel) { try { await page.click(sendSel, { timeout: 4000 }); sent = true; } catch (e) { step('Send button selector unusable — pressing Enter instead', false, e.message.split('\n')[0]); } }
+    if (!sent) await page.keyboard.press('Enter');
+    step('Message sent', true, sent ? 'clicked ' + sendSel : 'pressed Enter');
     const beforeLines = new Set(before.split('\n').map(s => s.trim()));
     const promptLines = new Set(prompt.split('\n').map(s => s.trim()));
     const read = async () => {
-      if (p.responseSel) {
-        const els = page.locator(p.responseSel), n = await els.count();
+      if (cl(p.responseSel)) {
+        const els = page.locator(cl(p.responseSel)), n = await els.count();
         return n ? (await els.nth(n - 1).innerText()).trim() : '';
       }
       const after = await page.evaluate(() => document.body.innerText);

@@ -2,7 +2,8 @@ const express = require('express'), crypto = require('crypto'), fs = require('fs
 const B = require('./browser'); const ask = B.ask;
 const FILE = path.join(__dirname, 'data.json');
 let db = { users: [], sessions: {}, keys: [], providers: [], logs: [] };
-const TURSO = process.env.TURSO_URL && process.env.TURSO_TOKEN ? require('@libsql/client').createClient({ url: process.env.TURSO_URL, authToken: process.env.TURSO_TOKEN }) : null;
+const TURSO_URL = process.env.TURSO_URL || process.env.TURSO_DATABASE_URL, TURSO_TOKEN = process.env.TURSO_TOKEN || process.env.TURSO_AUTH_TOKEN; // same names as the vault project work too
+const TURSO = TURSO_URL && TURSO_TOKEN ? require('@libsql/client').createClient({ url: TURSO_URL, authToken: TURSO_TOKEN }) : null;
 async function loadDb() {
   if (TURSO) {
     await TURSO.execute('CREATE TABLE IF NOT EXISTS relayapi_kv (k TEXT PRIMARY KEY, v TEXT)');
@@ -58,7 +59,7 @@ app.post('/api/signup', (req, res) => {
   db.users.push(u); save(); res.json({ token: session(u.id), email: u.email });
 });
 const GCID = process.env.GOOGLE_CLIENT_ID || '130548633634-ph56vpk62f83a3djqlr0spik6crc6vf4.apps.googleusercontent.com'; // public client ID, safe to ship
-app.get('/api/config', (req, res) => res.json({ googleClientId: GCID }));
+app.get('/api/config', (req, res) => res.json({ googleClientId: GCID, storage: TURSO ? 'turso' : 'file' }));
 app.post('/api/google', async (req, res) => {
   if (!GCID) return res.status(400).json({ error: 'Google sign-in is not configured' });
   try {

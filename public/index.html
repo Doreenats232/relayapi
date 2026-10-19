@@ -37,7 +37,7 @@ button,input,select,textarea{font:inherit;color:inherit}a{color:var(--a3);text-d
 .nav.on{background:linear-gradient(90deg,#6366f126,#6366f108);color:#fff}.nav.on:before{content:"";position:absolute;left:-14px;top:9px;bottom:9px;width:3px;border-radius:3px;background:var(--g)}.nav.on svg{color:var(--a3)}
 .sp{flex:1}.me{display:flex;gap:10px;align-items:center;padding:10px;border:1px solid var(--bd);border-radius:12px;background:var(--s2)}.av{width:34px;height:34px;border-radius:10px;background:var(--g);display:grid;place-items:center;font-weight:700;flex:0 0 auto}.me div{min-width:0;flex:1}.me small{display:block;color:var(--mu2);font-size:11px}.me b{display:block;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .top{display:flex;align-items:center;justify-content:space-between;padding:18px 32px;border-bottom:1px solid var(--bd);position:sticky;top:0;background:#07080dd9;backdrop-filter:blur(14px);z-index:5}.top h1{font-size:20px;letter-spacing:-.4px}.top small{color:var(--mu)}.burger{display:none}
-.main{padding:28px 32px 60px;max-width:1120px;animation:up .35s}
+.banner{background:#fbbf2417;border-bottom:1px solid #fbbf2455;color:#fcd34d;padding:10px 32px;font-size:13px}.main{padding:28px 32px 60px;max-width:1120px;animation:up .35s}
 .grid4{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin-bottom:16px}.grid2{display:grid;grid-template-columns:1.6fr 1fr;gap:14px;margin-bottom:16px}
 .stat{display:flex;flex-direction:column;gap:12px}.stat .ico{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;background:#6366f11f;color:#a5b4fc}.stat .n{font-size:30px;font-weight:800;letter-spacing:-1px}.stat .l{color:var(--mu);font-size:13px;margin-top:-8px}
 .hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:10px;flex-wrap:wrap}.hd h3{font-size:15px;font-weight:600}
@@ -91,7 +91,7 @@ window.onhashchange=()=>tok&&shell();
 let cfg=null,mailOpen=false,gInit=false;
 async function loadCfg(){if(cfg)return;cfg=await fetch('/api/config').then(r=>r.json()).catch(()=>({}));
  if(cfg.googleClientId)await new Promise(r=>{const s=document.createElement('script');s.src='https://accounts.google.com/gsi/client';s.async=true;s.onload=s.onerror=r;document.head.appendChild(s)})}
-function render(){if(tok)shell();else loadCfg().then(authView)}
+function render(){loadCfg().then(()=>tok?shell():authView())}
 async function onGoogle(r){try{const j=await api('/api/google','POST',{credential:r.credential});tok=localStorage.tk=j.token;email=localStorage.em=j.email;localStorage.pic=j.picture||'';location.hash='#/overview';render()}catch(e){toast(e.message,'er')}}
 function initGoogle(){if(!window.google||!google.accounts){return setTimeout(initGoogle,300)}
  if(!gInit){google.accounts.id.initialize({client_id:cfg.googleClientId,callback:onGoogle});gInit=true}
@@ -118,7 +118,7 @@ function shell(){const pg=page(),cur=NAV.find(n=>n[0]==pg)||NAV[0];
 root.innerHTML=`<div class="shell"><aside class="side" id="side">${LOGO}${NAV.map(n=>`<div class="nav ${n[0]==cur[0]?'on':''}" onclick="location.hash='#/${n[0]}';$('#side').classList.remove('open')">${ic(n[1])}${n[2]}</div>`).join('')}<div class="sp"></div>
 <div class="me"><div class="av" style="overflow:hidden">${localStorage.pic?`<img src="${esc(localStorage.pic)}" referrerpolicy="no-referrer" style="width:100%;height:100%;object-fit:cover">`:esc(email[0]||'?').toUpperCase()}</div><div><b>${esc(email)}</b><small>Free plan</small></div><button class="btn ghost" onclick="logout()" title="Log out">${ic('out',16)}</button></div></aside>
 <div><div class="top"><div style="display:flex;gap:12px;align-items:center"><button class="btn ghost burger" onclick="$('#side').classList.toggle('open')">${ic('menu',20)}</button><div><h1>${cur[2]}</h1></div></div><button class="btn sec sm" onclick="location.hash='#/docs'">${ic('book',15)}API Docs</button></div>
-<div class="main" id="main"><div class="sk"></div></div></div></div>`;V[cur[0]]().catch(e=>{if(tok)toast(e.message,'er')})}
+${cfg&&cfg.storage=='file'?'<div class="banner">⚠ <b>Temporary storage.</b> Accounts, sessions and providers are erased whenever the server sleeps or redeploys. Add <code>TURSO_URL</code> and <code>TURSO_TOKEN</code> in Render → Environment to keep them.</div>':''}<div class="main" id="main"><div class="sk"></div></div></div></div>`;V[cur[0]]().catch(e=>{if(tok)toast(e.message,'er')})}
 const empty=(i,h,p,b)=>`<div class="empty"><div class="ico">${ic(i,26)}</div><h4>${h}</h4><p>${p}</p>${b?'<br>'+b:''}</div>`;
 function countUp(el,to,suf=''){const t0=performance.now();(function f(t){const k=Math.min(1,(t-t0)/700),e=1-Math.pow(1-k,3);el.textContent=(Number.isInteger(to)?Math.round(to*e):(to*e).toFixed(1))+suf;if(k<1)requestAnimationFrame(f)})(t0)}
 function chart(days){const W=600,H=170,mx=Math.max(3,...days.map(d=>d.n)),x=i=>20+i*(W-40)/(days.length-1),y=v=>H-24-(v/mx)*(H-50);

@@ -136,7 +136,9 @@ async function run(userId, keyId, body, res) {
   if (!p) return res.status(404).json({ error: { message: `Provider "${body.model}" not found. Add it in the dashboard.` } });
   if (!prompt) return res.status(400).json({ error: { message: 'messages required' } });
   try {
-    const text = await ask(prov(p), prompt); log(true);
+    const lastUser = String(([...(body.messages || [])].reverse().find(m => m && m.role === 'user') || {}).content || '');
+    const conv = String(body.conversation || '').replace(/[^\w-]/g, '').slice(0, 64) || undefined;
+    const text = await ask(prov(p), { full: prompt, last: lastUser }, false, conv); log(true);
     res.json({ id: 'chatcmpl-' + id(), object: 'chat.completion', created: Math.floor(Date.now() / 1000), model: p.name,
       choices: [{ index: 0, message: { role: 'assistant', content: text }, finish_reason: 'stop' }], usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 } });
   } catch (e) { log(false, e.message); res.status(502).json({ error: { message: 'Provider failed: ' + e.message } }); }
@@ -147,6 +149,7 @@ app.post('/v1/chat/completions', (req, res) => {
   const m = Math.floor(Date.now() / 6e4), b = buckets[key.id] || (buckets[key.id] = { m, n: 0 });
   if (b.m !== m) { b.m = m; b.n = 0; } if (++b.n > 20) return res.status(429).json({ error: { message: 'Rate limit: 20 requests/min' } });
   key.lastUsed = Date.now(); key.requests++;
+  if (!(req.body || {}).conversation && req.headers['x-conversation-id']) req.body.conversation = String(req.headers['x-conversation-id']);
   run(key.userId, key.id, req.body || {}, res);
 });
 app.get('/v1/models', (req, res) => {

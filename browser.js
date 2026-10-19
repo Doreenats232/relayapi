@@ -46,6 +46,7 @@ async function getCtx(p, step) {
     await ctx.addCookies(ck).catch(e => step('Cookie warning', false, e.message));
     step('Session cookies loaded', true, ck.length + ' cookies');
   }
+  if (process.env.BLOCK_ASSETS !== '0') await ctx.route('**/*', r => ['image', 'media', 'font'].includes(r.request().resourceType()) ? r.abort() : r.continue()).catch(() => {}); // faster loads on a slow server
   ctx.on('close', () => { if (ctxs.get(p.id) && ctxs.get(p.id).ctx === ctx) ctxs.delete(p.id); });
   ctxs.set(p.id, { ctx, sig });
   return ctx;
@@ -85,15 +86,15 @@ setInterval(() => {
 }, 30000).unref();
 
 // one request at a time per provider. `conv` keeps one chat open on the site across requests.
-function ask(p, prompt, dbg, conv) {
+function ask(p, prompt, dbg, conv, info) {
   const prev = queues.get(p.id) || Promise.resolve();
-  const run = prev.catch(() => {}).then(() => doAsk(p, prompt, dbg, conv));
+  const run = prev.catch(() => {}).then(() => doAsk(p, prompt, dbg, conv, true, info || {}));
   queues.set(p.id, run);
   return run;
 }
 const counts = lines => { const m = new Map(); for (const l of lines.map(s => s.trim())) m.set(l, (m.get(l) || 0) + 1); return m; };
 
-async function doAsk(p, prompt, dbg, conv, retry = true) {
+async function doAsk(p, prompt, dbg, conv, retry = true, info = {}) {
   const full = typeof prompt === 'string' ? prompt : prompt.full, lastMsg = typeof prompt === 'string' ? prompt : (prompt.last || prompt.full);
   const trace = [], shots = [], T0 = Date.now(), ckey = conv ? `${p.userId}:${p.id}:${conv}` : '';
   const step = (name, ok, detail = '') => trace.push({ step: name, ok, detail: String(detail).slice(0, 300), t: Date.now() - T0 });
@@ -101,10 +102,10 @@ async function doAsk(p, prompt, dbg, conv, retry = true) {
   const shot = async label => { if (!dbg || !page) return; try { shots.push({ label, img: (await page.screenshot({ type: 'jpeg', quality: 45 })).toString('base64') }); } catch {} };
   try {
     const ctx = await getCtx(p, step);
-    if (ckey && convs.has(ckey)) { const c = convs.get(ckey); if (!c.page.isClosed()) { page = c.page; warm = true; c.last = Date.now(); step('Continuing the open chat', true, 'no page reload'); } else convs.delete(ckey); }
-    if (!page) { page = await takeSpare(p); if (page) step('Used pre-loaded page', true, 'ready instantly'); }
+    if (ckey && convs.has(ckey)) { const c = convs.get(ckey); if (!c.page.isClosed()) { page = c.page; warm = true; info.how = 'continued chat'; c.last = Date.now(); step('Continuing the open chat', true, 'no page reload'); } else convs.delete(ckey); }
+    if (!page) { page = await takeSpare(p); if (page) { info.how = 'new chat (pre-loaded page)'; step('Used pre-loaded page', true, 'ready instantly'); } }
     if (!page) {
-      makeRoom(); page = await openPage(p, ctx);
+      makeRoom(); page = await openPage(p, ctx); info.how = info.stale ? 'new chat (old one went stale)' : 'new chat (loaded page)';
       step('Page loaded', true, 'final URL: ' + page.url() + ' — title: ' + await page.title().catch(() => ''));
       if (p.cookieList && /login|signin|sign-in|auth/i.test(page.url())) step('Login wall?', false, 'Redirected to a login page — session expired or invalid');
     }
@@ -157,9 +158,9 @@ async function doAsk(p, prompt, dbg, conv, retry = true) {
     return dbg ? { ok: true, text: result, raw: raw.slice(-4000), selector: selInfo, trace, shots } : result;
   } catch (e) {
     if (warm && retry) { // the kept page went stale: drop it and retry once on a fresh page (full history is resent)
-      convs.delete(ckey); keep = false;
+      convs.delete(ckey); keep = false; info.stale = true;
       if (page) await page.close().catch(() => {});
-      return doAsk(p, prompt, dbg, conv, false);
+      return doAsk(p, prompt, dbg, conv, false, info);
     }
     if (page) { const chal = await page.evaluate(() => /verify(ing)? (you are )?human|just a moment|checking your browser|captcha/i.test(document.body.innerText)).catch(() => false);
       if (chal || /__cf_chl|challenge/i.test(page.url())) step('Human verification detected', false, 'Open Live view on this provider, complete the check yourself, then Save session'); }

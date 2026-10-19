@@ -46,7 +46,7 @@ const buildState = (raw, storageRaw, url) => {
 };
 const app = express();
 app.use(express.json({ limit: '1mb' }));
-app.use((req, res, next) => { res.set('Access-Control-Allow-Origin', '*'); res.set('Access-Control-Allow-Headers', 'Authorization,Content-Type'); if (req.method === 'OPTIONS') return res.sendStatus(204); next(); });
+app.use((req, res, next) => { res.set('Access-Control-Allow-Origin', '*'); res.set('Access-Control-Expose-Headers', 'X-Relay-Mode'); res.set('Access-Control-Allow-Headers', 'Authorization,Content-Type,X-Conversation-Id'); if (req.method === 'OPTIONS') return res.sendStatus(204); next(); });
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ---------- auth ----------
@@ -129,16 +129,17 @@ function toPrompt(messages) {
   if (messages.length === 1) return String(messages[0].content);
   return messages.map(m => `${m.role}: ${m.content}`).join('\n') + '\nassistant:';
 }
+const lastUserOf = ms => String(([...(ms || [])].reverse().find(m => m && m.role === 'user') || {}).content || '');
+const convOf = v => String(v || '').replace(/[^\w-]/g, '').slice(0, 64) || undefined;
 async function run(userId, keyId, body, res) {
-  const t0 = Date.now(), prompt = toPrompt(body.messages);
+  const t0 = Date.now(), prompt = toPrompt(body.messages), info = {};
   const p = db.providers.find(p => p.userId === userId && p.name === body.model);
-  const log = (ok, err) => { db.logs.push({ ts: Date.now(), userId, keyId, provider: body.model, ms: Date.now() - t0, ok, err: err || '', promptLen: prompt.length }); if (db.logs.length > 1500) db.logs.splice(0, 500); save(); };
+  const log = (ok, err) => { db.logs.push({ ts: Date.now(), userId, keyId, provider: body.model, ms: Date.now() - t0, ok, err: err || '', promptLen: prompt.length, how: info.how || '' }); if (db.logs.length > 1500) db.logs.splice(0, 500); save(); };
   if (!p) return res.status(404).json({ error: { message: `Provider "${body.model}" not found. Add it in the dashboard.` } });
   if (!prompt) return res.status(400).json({ error: { message: 'messages required' } });
   try {
-    const lastUser = String(([...(body.messages || [])].reverse().find(m => m && m.role === 'user') || {}).content || '');
-    const conv = String(body.conversation || '').replace(/[^\w-]/g, '').slice(0, 64) || undefined;
-    const text = await ask(prov(p), { full: prompt, last: lastUser }, false, conv); log(true);
+    const text = await ask(prov(p), { full: prompt, last: lastUserOf(body.messages) }, false, convOf(body.conversation), info); log(true);
+    res.set('X-Relay-Mode', info.how || '');
     res.json({ id: 'chatcmpl-' + id(), object: 'chat.completion', created: Math.floor(Date.now() / 1000), model: p.name,
       choices: [{ index: 0, message: { role: 'assistant', content: text }, finish_reason: 'stop' }], usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 } });
   } catch (e) { log(false, e.message); res.status(502).json({ error: { message: 'Provider failed: ' + e.message } }); }
@@ -169,7 +170,7 @@ app.post('/api/playground', auth, async (req, res) => {
   if (!req.body.debug) return run(req.uid, 'playground', req.body || {}, res);
   const p = db.providers.find(p => p.userId === req.uid && p.name === req.body.model);
   if (!p) return res.status(404).json({ error: 'Provider not found' });
-  res.json(await ask(prov(p), toPrompt(req.body.messages), true));
+  res.json(await ask(prov(p), { full: toPrompt(req.body.messages), last: lastUserOf(req.body.messages) }, true, convOf(req.body.conversation)));
 });
 app.post('/api/providers/:id/live', auth, async (req, res) => {
   const p = db.providers.find(p => p.id === req.params.id && p.userId === req.uid);

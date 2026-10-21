@@ -14,6 +14,20 @@ const MAX_PAGES = +process.env.MAX_PAGES || 3, CONV_TTL = 15 * 60e3, SPARE_TTL =
 const ctxs = new Map();   // providerId -> { ctx, sig }
 const convs = new Map();  // "user:provider:conversation" -> { page, pid, last }
 const spares = new Map(); // providerId -> { promise, at }
+// saved chats: conversation key -> chat page URL, so a chat survives restarts, idle closes and evictions. server.js plugs in the real (Turso-backed) store.
+let store = { get: () => null, set: () => {}, del: () => {} };
+const pathOf = u => { try { return new URL(u).pathname.replace(/\/+$/, ''); } catch { return ''; } };
+const LOGINISH = /login|signin|sign-in|sign_in|auth/i;
+const isChatUrl = (p, u) => { const a = pathOf(u); return !!a && a !== pathOf(p.url) && !LOGINISH.test(a); }; // true once the site moved to a real chat URL
+async function settle(page, max = 8000) { // let a reopened chat finish rendering its history before we measure it
+  let last = -1, same = 0; const t0 = Date.now();
+  while (Date.now() - t0 < max && same < 3) {
+    await page.waitForTimeout(300);
+    const n = await page.evaluate(() => document.body.innerText.length).catch(() => -1);
+    if (n === last && n > 0) same++; else { same = 0; last = n; }
+  }
+}
+async function forget(ckey) { const c = convs.get(ckey); convs.delete(ckey); store.del(ckey); if (c) await c.page.close().catch(() => {}); }
 const sigOf = p => crypto.createHash('sha1').update((p.cookies || '') + '|' + (p.ua || '') + '|' + p.url).digest('hex');
 
 async function getBrowser() {
@@ -58,9 +72,9 @@ function evictOne() {
   return false;
 }
 const makeRoom = () => { while (convs.size + spares.size >= MAX_PAGES && evictOne()); };
-async function openPage(p, ctx) {
+async function openPage(p, ctx, url) {
   const page = await ctx.newPage();
-  try { await page.goto(p.url, { waitUntil: 'domcontentloaded', timeout: 45000 }); } catch (e) { await page.close().catch(() => {}); throw e; }
+  try { await page.goto(url || p.url, { waitUntil: 'domcontentloaded', timeout: 45000 }); } catch (e) { await page.close().catch(() => {}); throw e; }
   return page;
 }
 function prewarm(p) { // load the next page in the background so the next new chat starts instantly
@@ -98,22 +112,33 @@ async function doAsk(p, prompt, dbg, conv, retry = true, info = {}) {
   const full = typeof prompt === 'string' ? prompt : prompt.full, lastMsg = typeof prompt === 'string' ? prompt : (prompt.last || prompt.full);
   const trace = [], shots = [], T0 = Date.now(), ckey = conv ? `${p.userId}:${p.id}:${conv}` : '';
   const step = (name, ok, detail = '') => trace.push({ step: name, ok, detail: String(detail).slice(0, 300), t: Date.now() - T0 });
-  let page, raw = '', selInfo = '', warm = false, keep = false, ok = false;
+  let page, raw = '', selInfo = '', warm = false, restored = false, keep = false, ok = false;
   const shot = async label => { if (!dbg || !page) return; try { shots.push({ label, img: (await page.screenshot({ type: 'jpeg', quality: 45 })).toString('base64') }); } catch {} };
   try {
     const ctx = await getCtx(p, step);
     if (ckey && convs.has(ckey)) { const c = convs.get(ckey); if (!c.page.isClosed()) { page = c.page; warm = true; info.how = 'continued chat'; c.last = Date.now(); step('Continuing the open chat', true, 'no page reload'); } else convs.delete(ckey); }
+    if (!page && ckey && store.get(ckey)) { // saved chat from before a restart / idle close: reopen that exact chat instead of starting a new one
+      const saved = store.get(ckey); let pg = null;
+      makeRoom();
+      try { pg = await openPage(p, ctx, saved); } catch (e) { step('Saved chat failed to load', false, e.message.split('\n')[0]); }
+      if (pg && pathOf(pg.url()) === pathOf(saved)) { page = pg; warm = restored = true; info.how = 'continued chat (restored)'; step('Reopened the saved chat', true, 'same chat as before'); }
+      else if (pg) {
+        const now = pg.url(); await pg.close().catch(() => {});
+        if (LOGINISH.test(pathOf(now))) throw new Error('Redirected to a login page — session expired. Use "Log in" on the provider to sign in again (the saved chat is kept).');
+        store.del(ckey); info.stale = true; step('Saved chat no longer exists — starting a new one', false, now);
+      } else throw new Error('Could not open the saved chat (site slow or unreachable) — it is kept, try again');
+    }
     if (!page) { page = await takeSpare(p); if (page) { info.how = 'new chat (pre-loaded page)'; step('Used pre-loaded page', true, 'ready instantly'); } }
     if (!page) {
       makeRoom(); page = await openPage(p, ctx); info.how = info.stale ? 'new chat (old one went stale)' : 'new chat (loaded page)';
       step('Page loaded', true, 'final URL: ' + page.url() + ' — title: ' + await page.title().catch(() => ''));
       if (p.cookieList && /login|signin|sign-in|auth/i.test(page.url())) step('Login wall?', false, 'Redirected to a login page — session expired or invalid');
     }
-    if (ckey && !warm) { convs.set(ckey, { page, pid: p.id, last: Date.now() }); }
+    if (ckey && (!warm || restored)) { convs.set(ckey, { page, pid: p.id, last: Date.now() }); }
     keep = !!ckey;
     const sel = inputSel(p), box = page.locator(sel).first();
     await box.waitFor({ state: 'visible', timeout: 25000 });
-    if (!warm) await page.waitForTimeout(800);
+    if (restored) await settle(page); else if (!warm) await page.waitForTimeout(800);
     await shot(warm ? '1. Open chat' : '1. Page ready');
     selInfo = await box.evaluate(e => e.tagName.toLowerCase() + (e.id ? '#' + e.id : '') + (e.className && typeof e.className == 'string' ? '.' + e.className.trim().split(/\s+/).slice(0, 2).join('.') : '') + (e.placeholder ? ' placeholder="' + e.placeholder + '"' : ''));
     step('Text box found', true, `using ${selInfo}`);
@@ -153,15 +178,20 @@ async function doAsk(p, prompt, dbg, conv, retry = true, info = {}) {
     if (!result && last) result = last;
     if (!result) throw new Error('Timed out waiting for reply (no new text appeared)');
     step('Reply detected', true, `${result.length} chars via ${src}, took ${((Date.now() - t1) / 1000).toFixed(1)}s`);
+    if (ckey) { // remember which chat this is so it survives restarts / idle closes
+      let u = page.url(); if (!warm) for (let i = 0; i < 8 && !isChatUrl(p, u); i++) { await page.waitForTimeout(400); u = page.url(); }
+      if (isChatUrl(p, u) && store.get(ckey) !== u) store.set(ckey, u);
+    }
     await shot('3. Reply received');
     ok = true;
     return dbg ? { ok: true, text: result, raw: raw.slice(-4000), selector: selInfo, trace, shots } : result;
   } catch (e) {
-    if (warm && retry) { // the kept page went stale: drop it and retry once on a fresh page (full history is resent)
+    if (warm && retry) { // the kept page went stale: drop the page and retry once by reopening the SAME saved chat (a new chat with full history only if none is saved)
       convs.delete(ckey); keep = false; info.stale = true;
       if (page) await page.close().catch(() => {});
       return doAsk(p, prompt, dbg, conv, false, info);
     }
+    if (warm && ckey) store.del(ckey); // failed twice on this chat: forget it so the next request starts a fresh one instead of being stuck
     if (page) { const chal = await page.evaluate(() => /verify(ing)? (you are )?human|just a moment|checking your browser|captcha/i.test(document.body.innerText)).catch(() => false);
       if (chal || /__cf_chl|challenge/i.test(page.url())) step('Human verification detected', false, 'Open Live view on this provider, complete the check yourself, then Save session'); }
     step('Failed', false, e.message);
@@ -237,5 +267,5 @@ async function handle(page, d) {
 }
 async function liveSave(sid, owner) { const s = liveGet(sid, owner), st = await s.ctx.storageState(); await liveClose(sid); return st; }
 async function liveClose(sid) { const s = live.get(sid); if (!s) return; clearTimeout(s.timer); live.delete(sid); await s.ctx.close().catch(() => {}); }
-module.exports = { ask, liveStart, liveAttach, liveSave, liveClose, liveOwns: (sid, o) => live.get(sid)?.owner === o };
+module.exports = { ask, forget, setStore: s => { store = s; }, liveStart, liveAttach, liveSave, liveClose, liveOwns: (sid, o) => live.get(sid)?.owner === o };
 

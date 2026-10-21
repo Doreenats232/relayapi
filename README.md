@@ -13,3 +13,7 @@ Without a database, `data.json` is wiped on every restart. Set these env vars on
 2. **Credentials → Create credentials → OAuth client ID → Web application**. Add your site URL (e.g. `https://relayapi-xxxx.onrender.com`) under **Authorized JavaScript origins**.
 3. Copy the Client ID into Render env var `GOOGLE_CLIENT_ID` and redeploy. (No client secret needed.)
 Email/password stays available under "Use email & password instead".
+
+## Chats
+- Every API key belongs to one provider and keeps one chat open on that site for good. The chat URL is saved in the database, so it is reopened after restarts or idle closes. `model` and any conversation id sent by the client are ignored. A second key on the same provider gets its own chat.
+- The dashboard Playground keeps one chat per provider. Messages are kept in the browser, and the "New chat" button is the only way to replace the chat.

@@ -1,7 +1,9 @@
 const express = require('express'), crypto = require('crypto'), fs = require('fs'), path = require('path');
 const B = require('./browser'); const ask = B.ask;
 const FILE = path.join(__dirname, 'data.json');
-let db = { users: [], sessions: {}, keys: [], providers: [], logs: [] };
+let db = { users: [], sessions: {}, keys: [], providers: [], logs: [], chats: {} };
+// saved chat per (user:provider:conversation) so chats survive restarts; lives in the same Turso blob as everything else
+B.setStore({ get: k => (db.chats[k] || {}).url || null, set: (k, url) => { db.chats[k] = { url, ts: Date.now() }; save(); }, del: k => { if (db.chats[k]) { delete db.chats[k]; save(); } } });
 const TURSO_URL = process.env.TURSO_URL || process.env.TURSO_DATABASE_URL, TURSO_TOKEN = process.env.TURSO_TOKEN || process.env.TURSO_AUTH_TOKEN; // same names as the vault project work too
 const TURSO = TURSO_URL && TURSO_TOKEN ? require('@libsql/client').createClient({ url: TURSO_URL, authToken: TURSO_TOKEN }) : null;
 async function loadDb() {
@@ -103,13 +105,15 @@ app.put('/api/providers/:id/cookies', auth, (req, res) => {
   try { p.cookies = buildState(req.body.cookies, req.body.storage, p.url); } catch (e) { return res.status(400).json({ error: e.message }); }
   p.lastTest = null; save(); res.json({ ok: 1 });
 });
-app.delete('/api/providers/:id', auth, (req, res) => { db.providers = db.providers.filter(p => !(p.id === req.params.id && p.userId === req.uid)); save(); res.json({ ok: 1 }); });
+app.delete('/api/providers/:id', auth, (req, res) => { db.providers = db.providers.filter(p => !(p.id === req.params.id && p.userId === req.uid)); for (const k of Object.keys(db.chats)) if (k.split(':')[1] === req.params.id) delete db.chats[k]; save(); res.json({ ok: 1 }); });
 
 // ---------- api keys ----------
 app.get('/api/keys', auth, (req, res) => res.json(db.keys.filter(k => k.userId === req.uid).map(({ hash, ...k }) => k)));
 app.post('/api/keys', auth, (req, res) => {
+  const pv = db.providers.find(p => p.id === (req.body || {}).providerId && p.userId === req.uid);
+  if (!pv) return res.status(400).json({ error: 'Pick the provider this key is for' });
   const key = 'rk_' + crypto.randomBytes(24).toString('hex');
-  const k = { id: id(), userId: req.uid, name: (req.body.name || 'Untitled key').slice(0, 40), hash: sha(key), prefix: key.slice(0, 7) + '…' + key.slice(-4), created: Date.now(), lastUsed: null, requests: 0, revoked: false };
+  const k = { id: id(), userId: req.uid, providerId: pv.id, name: (req.body.name || 'Untitled key').slice(0, 40), hash: sha(key), prefix: key.slice(0, 7) + '…' + key.slice(-4), created: Date.now(), lastUsed: null, requests: 0, revoked: false };
   db.keys.push(k); save(); res.json({ key, id: k.id });
 });
 app.delete('/api/keys/:id', auth, (req, res) => { const k = db.keys.find(k => k.id === req.params.id && k.userId === req.uid); if (k) k.revoked = true; save(); res.json({ ok: 1 }); });
@@ -132,14 +136,14 @@ function toPrompt(messages) {
 }
 const lastUserOf = ms => String(([...(ms || [])].reverse().find(m => m && m.role === 'user') || {}).content || '');
 const convOf = v => String(v || '').replace(/[^\w-]/g, '').slice(0, 64) || undefined;
-async function run(userId, keyId, body, res) {
+async function run(userId, keyId, body, res, o = {}) {
   const t0 = Date.now(), prompt = toPrompt(body.messages), info = {};
-  const p = db.providers.find(p => p.userId === userId && p.name === body.model);
-  const log = (ok, err) => { db.logs.push({ ts: Date.now(), userId, keyId, provider: body.model, ms: Date.now() - t0, ok, err: err || '', promptLen: prompt.length, how: info.how || '' }); if (db.logs.length > 1500) db.logs.splice(0, 500); save(); };
+  const p = o.provider || db.providers.find(p => p.userId === userId && p.name === body.model);
+  const log = (ok, err) => { db.logs.push({ ts: Date.now(), userId, keyId, provider: p ? p.name : body.model, ms: Date.now() - t0, ok, err: err || '', promptLen: prompt.length, how: info.how || '' }); if (db.logs.length > 1500) db.logs.splice(0, 500); save(); };
   if (!p) return res.status(404).json({ error: { message: `Provider "${body.model}" not found. Add it in the dashboard.` } });
   if (!prompt) return res.status(400).json({ error: { message: 'messages required' } });
   try {
-    const text = await ask(prov(p), { full: prompt, last: lastUserOf(body.messages) }, false, convOf(body.conversation), info); log(true);
+    const text = await ask(prov(p), { full: prompt, last: lastUserOf(body.messages) }, false, o.conv || convOf(body.conversation), info); log(true);
     res.set('X-Relay-Mode', info.how || '');
     res.json({ id: 'chatcmpl-' + id(), object: 'chat.completion', created: Math.floor(Date.now() / 1000), model: p.name,
       choices: [{ index: 0, message: { role: 'assistant', content: text }, finish_reason: 'stop' }], usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 } });
@@ -151,13 +155,14 @@ app.post('/v1/chat/completions', (req, res) => {
   const m = Math.floor(Date.now() / 6e4), b = buckets[key.id] || (buckets[key.id] = { m, n: 0 });
   if (b.m !== m) { b.m = m; b.n = 0; } if (++b.n > 20) return res.status(429).json({ error: { message: 'Rate limit: 20 requests/min' } });
   key.lastUsed = Date.now(); key.requests++;
-  if (!(req.body || {}).conversation && req.headers['x-conversation-id']) req.body.conversation = String(req.headers['x-conversation-id']);
-  run(key.userId, key.id, req.body || {}, res);
+  const bound = key.providerId ? db.providers.find(p => p.id === key.providerId && p.userId === key.userId) : null;
+  if (key.providerId && !bound) return res.status(404).json({ error: { message: 'The provider this key belongs to was deleted. Revoke this key and create a new one.' } });
+  run(key.userId, key.id, req.body || {}, res, { provider: bound || undefined, conv: 'key-' + key.id }); // one persistent chat per key; "model" and any conversation id from the client are ignored
 });
 app.get('/v1/models', (req, res) => {
   const key = db.keys.find(k => k.hash === sha((req.headers.authorization || '').replace('Bearer ', '')) && !k.revoked);
   if (!key) return res.status(401).json({ error: { message: 'Invalid API key' } });
-  res.json({ object: 'list', data: db.providers.filter(p => p.userId === key.userId).map(p => ({ id: p.name, object: 'model' })) });
+  res.json({ object: 'list', data: db.providers.filter(p => p.userId === key.userId && (!key.providerId || p.id === key.providerId)).map(p => ({ id: p.name, object: 'model' })) });
 });
 app.post('/api/providers/:id/test', auth, async (req, res) => {
   const p = db.providers.find(p => p.id === req.params.id && p.userId === req.uid);
@@ -168,10 +173,15 @@ app.post('/api/providers/:id/test', auth, async (req, res) => {
   res.json(r);
 });
 app.post('/api/playground', auth, async (req, res) => {
-  if (!req.body.debug) return run(req.uid, 'playground', req.body || {}, res);
+  if (!req.body.debug) return run(req.uid, 'playground', req.body || {}, res, { conv: 'playground' });
   const p = db.providers.find(p => p.userId === req.uid && p.name === req.body.model);
   if (!p) return res.status(404).json({ error: 'Provider not found' });
-  res.json(await ask(prov(p), { full: toPrompt(req.body.messages), last: lastUserOf(req.body.messages) }, true, convOf(req.body.conversation)));
+  res.json(await ask(prov(p), { full: toPrompt(req.body.messages), last: lastUserOf(req.body.messages) }, true, 'playground'));
+});
+app.post('/api/playground/reset', auth, async (req, res) => { // "New chat" button: the only way the playground chat of a provider is ever replaced
+  const p = db.providers.find(p => p.userId === req.uid && p.name === (req.body || {}).model);
+  if (!p) return res.status(404).json({ error: 'Provider not found' });
+  await B.forget(`${p.userId}:${p.id}:playground`); res.json({ ok: 1 });
 });
 app.post('/api/providers/:id/live', auth, async (req, res) => {
   const p = db.providers.find(p => p.id === req.params.id && p.userId === req.uid);

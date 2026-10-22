@@ -106,8 +106,25 @@ function evictOne() {
   return false;
 }
 const makeRoom = () => { while (convs.size + spares.size >= MAX_PAGES && evictOne()); };
+// what the browser actually holds when a saved login is rejected (names only, never values)
+async function diagnose(p, ctx, page) {
+  const saved = p.cookieList && !Array.isArray(p.cookieList) ? p.cookieList : {}, o = saved.origins || [];
+  const savedLs = o.flatMap(x => (x.localStorage || []).map(i => i.name)), savedIdb = o.flatMap(x => (x.indexedDB || []).map(d => d.name));
+  const ck = await ctx.cookies().catch(() => []);
+  const now = await page.evaluate(async () => { let idb = []; try { idb = (await indexedDB.databases()).map(d => d.name); } catch {} return { ls: Object.keys(localStorage), ss: Object.keys(sessionStorage), idb }; }).catch(() => ({ ls: [], ss: [], idb: [] }));
+  const lost = savedLs.filter(k => !now.ls.includes(k));
+  return [
+    'cookies in browser: ' + (ck.map(c => c.name).join(', ') || 'none'),
+    'localStorage: saved ' + savedLs.length + ', still present ' + (savedLs.length - lost.length) + (lost.length ? ', removed by the site: ' + lost.join(', ') : ''),
+    'sessionStorage keys (not saved by design): ' + (now.ss.join(', ') || 'none'),
+    'IndexedDB saved: ' + (savedIdb.join(', ') || 'none') + ' | now: ' + (now.idb.join(', ') || 'none'),
+    'failed requests: ' + ((page.__bad || []).join('; ') || 'none'),
+  ];
+}
 async function openPage(p, ctx, url) {
   const page = await ctx.newPage();
+  page.__bad = []; // failed API/page responses, shown in the trace when a saved login is rejected
+  page.on('response', r => { try { const t = r.request().resourceType(); if (r.status() >= 400 && (t === 'xhr' || t === 'fetch' || t === 'document') && page.__bad.length < 10) { const u = new URL(r.url()); page.__bad.push(r.status() + ' ' + u.host + u.pathname); } } catch {} });
   try { await page.goto(url || p.url, { waitUntil: 'domcontentloaded', timeout: 45000 }); } catch (e) { await page.close().catch(() => {}); throw e; }
   return page;
 }
@@ -166,7 +183,10 @@ async function doAsk(p, prompt, dbg, conv, retry = true, info = {}) {
     if (!page) {
       makeRoom(); page = await openPage(p, ctx); info.how = info.stale ? 'new chat (old one went stale)' : 'new chat (loaded page)';
       step('Page loaded', true, 'final URL: ' + page.url() + ' — title: ' + await page.title().catch(() => ''));
-      if (p.cookieList && /login|signin|sign-in|auth/i.test(page.url())) step('Login wall?', false, 'Redirected to a login page — session expired or invalid'); loginWall = true; page.setDefaultTimeout(10000);
+      if (p.cookieList && /login|signin|sign-in|auth/i.test(page.url())) {
+        step('Login wall?', false, 'Redirected to a login page — session expired or invalid'); loginWall = true; page.setDefaultTimeout(10000);
+        for (const l of await diagnose(p, ctx, page)) step('Session check', false, l);
+      }
     }
     if (ckey && (!warm || restored)) { convs.set(ckey, { page, pid: p.id, last: Date.now() }); }
     keep = !!ckey;

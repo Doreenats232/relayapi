@@ -27,6 +27,39 @@ async function settle(page, max = 8000) { // let a reopened chat finish renderin
     if (n === last && n > 0) same++; else { same = 0; last = n; }
   }
 }
+// delete a chat on the site itself (used when its API key is revoked). DeepSeek only for now (its own chat_session/delete call, made from inside the logged-in page); other sites just drop the saved chat.
+// resolves 'deleted' | 'kept' (could not delete on the site) | 'none' (no chat saved)
+function deleteChat(p, ckey) {
+  const prev = queues.get(p.id) || Promise.resolve();
+  const run = prev.catch(() => {}).then(() => doDelete(p, ckey));
+  queues.set(p.id, run);
+  return run;
+}
+async function doDelete(p, ckey) {
+  const c = convs.get(ckey), open = c && !c.page.isClosed() ? c.page : null;
+  const chatUrl = store.get(ckey) || (open ? open.url() : null);
+  if (!chatUrl || !isChatUrl(p, chatUrl)) { await forget(ckey); return 'none'; }
+  let result = 'kept';
+  try {
+    if (/(^|\.)deepseek\.com$/.test(new URL(p.url).hostname)) {
+      const id = pathOf(chatUrl).split('/').pop();
+      let page = open, own = false;
+      if (!page) { page = await openPage(p, await getCtx(p, () => {})); own = true; }
+      try {
+        const r = await page.evaluate(async id => {
+          let tok = '';
+          for (const k of Object.keys(localStorage)) if (/user.?token/i.test(k)) { try { const v = JSON.parse(localStorage[k]); tok = typeof v === 'string' ? v : (v && v.value) || ''; } catch { tok = localStorage[k]; } if (tok) break; }
+          const res = await fetch('/api/v0/chat_session/delete', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json', 'x-client-platform': 'web', 'x-client-version': '2.5.0', 'x-app-version': '20241129.1', 'x-client-locale': 'en_US', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: JSON.stringify({ chat_session_id: id }) });
+          return { status: res.status, body: (await res.text()).slice(0, 300) };
+        }, id);
+        let code = null; try { code = JSON.parse(r.body).code; } catch {}
+        if (r.status === 200 && code === 0) result = 'deleted'; else console.log('delete chat not confirmed:', r.status, r.body);
+      } finally { if (own) await page.close().catch(() => {}); }
+    }
+  } catch (e) { console.log('delete chat failed:', e.message); }
+  await forget(ckey); // the key is gone either way, so drop the saved chat and its open page
+  return result;
+}
 async function forget(ckey) { const c = convs.get(ckey); convs.delete(ckey); store.del(ckey); if (c) await c.page.close().catch(() => {}); }
 const sigOf = p => crypto.createHash('sha1').update((p.cookies || '') + '|' + (p.ua || '') + '|' + p.url).digest('hex');
 
@@ -267,5 +300,5 @@ async function handle(page, d) {
 }
 async function liveSave(sid, owner) { const s = liveGet(sid, owner), st = await s.ctx.storageState(); await liveClose(sid); return st; }
 async function liveClose(sid) { const s = live.get(sid); if (!s) return; clearTimeout(s.timer); live.delete(sid); await s.ctx.close().catch(() => {}); }
-module.exports = { ask, forget, setStore: s => { store = s; }, liveStart, liveAttach, liveSave, liveClose, liveOwns: (sid, o) => live.get(sid)?.owner === o };
+module.exports = { ask, forget, deleteChat, hasChat: k => !!(store.get(k) || convs.has(k)), setStore: s => { store = s; }, liveStart, liveAttach, liveSave, liveClose, liveOwns: (sid, o) => live.get(sid)?.owner === o };
 

@@ -116,7 +116,16 @@ app.post('/api/keys', auth, (req, res) => {
   const k = { id: id(), userId: req.uid, providerId: pv.id, name: (req.body.name || 'Untitled key').slice(0, 40), hash: sha(key), prefix: key.slice(0, 7) + '…' + key.slice(-4), created: Date.now(), lastUsed: null, requests: 0, revoked: false };
   db.keys.push(k); save(); res.json({ key, id: k.id });
 });
-app.delete('/api/keys/:id', auth, (req, res) => { const k = db.keys.find(k => k.id === req.params.id && k.userId === req.uid); if (k) k.revoked = true; save(); res.json({ ok: 1 }); });
+app.delete('/api/keys/:id', auth, async (req, res) => {
+  const k = db.keys.find(k => k.id === req.params.id && k.userId === req.uid);
+  if (!k) return res.json({ ok: 1, chat: 'none' });
+  k.revoked = true; save();
+  // the key's chat goes with it: delete it on the provider's site (waits up to 20s, then finishes in the background)
+  const jobs = db.providers.filter(p => p.userId === k.userId && (!k.providerId || p.id === k.providerId)).map(p => ({ p, ck: `${p.userId}:${p.id}:key-${k.id}` })).filter(x => B.hasChat(x.ck)).map(x => B.deleteChat(x.p, x.ck));
+  const all = Promise.all(jobs).then(r => r.includes('deleted') ? 'deleted' : r.includes('kept') ? 'kept' : 'none').catch(() => 'kept');
+  const chat = await Promise.race([all, new Promise(r => setTimeout(() => r('pending'), 20000))]);
+  res.json({ ok: 1, chat });
+});
 
 // ---------- stats / logs ----------
 app.get('/api/stats', auth, (req, res) => {

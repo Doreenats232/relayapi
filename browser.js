@@ -199,7 +199,7 @@ async function doAsk(p, prompt, dbg, conv, retry = true, info = {}) {
     keep = !!ckey;
     const sel = inputSel(p), box = page.locator(sel).first();
     await box.waitFor({ state: 'visible', timeout: 25000 });
-    if (restored) await settle(page); else if (!warm) await page.waitForTimeout(800);
+    if (!warm || restored) await settle(page, restored ? 8000 : 6000); // let the page finish loading its chat history BEFORE we measure it, or old messages look like a "new reply" (miniapps.ai returned its whole history)
     await shot(warm ? '1. Open chat' : '1. Page ready');
     selInfo = await box.evaluate(e => e.tagName.toLowerCase() + (e.id ? '#' + e.id : '') + (e.className && typeof e.className == 'string' ? '.' + e.className.trim().split(/\s+/).slice(0, 2).join('.') : '') + (e.placeholder ? ' placeholder="' + e.placeholder + '"' : ''));
     step('Text box found', true, `using ${selInfo}`);

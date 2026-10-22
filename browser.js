@@ -300,7 +300,7 @@ async function handle(page, d) {
   else if (d.t === 'back') await page.goBack({ timeout: 15000 }).catch(() => {});
   else if (d.t === 'reload') page.reload({ timeout: 45000 }).catch(() => {});
 }
-async function liveSave(sid, owner) { const s = liveGet(sid, owner), st = await s.ctx.storageState({ indexedDB: true }); await liveClose(sid); return st; }
+async function liveSave(sid, owner) { const s = liveGet(sid, owner), url = s.page.url(), st = await s.ctx.storageState({ indexedDB: true }); Object.defineProperty(st, 'url', { value: url, enumerable: false }); await liveClose(sid); return st; } // st.url = where the live page was when saved (not stored)
 async function liveClose(sid) { const s = live.get(sid); if (!s) return; clearTimeout(s.timer); live.delete(sid); await s.ctx.close().catch(() => {}); }
 module.exports = { sessionInfo, ask, forget, deleteChat, hasChat: k => !!(store.get(k) || convs.has(k)), setStore: s => { store = s; }, liveStart, liveAttach, liveSave, liveClose, liveOwns: (sid, o) => live.get(sid)?.owner === o };
 

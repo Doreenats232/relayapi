@@ -193,7 +193,7 @@ const m=modal(`<div class="mh"><h3>Live browser</h3><button class="btn ghost" on
 <p class="mu" style="margin-top:10px;font-size:12px">Log in or pass the check until you see the normal chat page, then press Save session. Tip: use email + password — “Continue with Google” is often blocked inside automated browsers.</p>
 <div style="display:flex;gap:10px;margin-top:10px"><button class="btn" style="flex:1" onclick="lvSave()">${ic('check',16)}Save session</button><button class="btn sec" onclick="closeM()">Cancel</button></div>`,true);m.classList.add('xl');
 const cv=$('#lvc'),cx=cv.getContext('2d',{alpha:false,desynchronized:true}),send=o=>ws&&ws.readyState==1&&ws.send(JSON.stringify(o));window.lvSend2=send;window.lvTxt=()=>{const v=$('#lvt').value;if(v){send({t:'text',text:v});$('#lvt').value=''}};
-window.lvSave=async()=>{try{const r=await api('/api/live/'+sid+'/save','POST',{pid});saved=true;closeM();toast('Session saved ('+r.cookies+' cookies) — run a test');V.providers()}catch(e){toast(e.message,'er')}};
+window.lvSave=async()=>{try{const r=await api('/api/live/'+sid+'/save','POST',{pid});saved=true;closeM();toast('Session saved ('+(r.info||r.cookies+' cookies')+') — run a test');V.providers()}catch(e){toast(e.message,'er')}};
 const pos=e=>{const r=cv.getBoundingClientRect();return{x:Math.round((e.clientX-r.left)/r.width*W),y:Math.round((e.clientY-r.top)/r.height*H)}};let lastMv=0;
 cv.onpointermove=e=>{const n=performance.now();if(n-lastMv<16)return;lastMv=n;send({t:'move',...pos(e)})};
 cv.onpointerdown=e=>{e.preventDefault();cv.focus();cv.setPointerCapture(e.pointerId);send({t:'down',b:e.button,...pos(e)})};

@@ -200,7 +200,7 @@ app.post('/api/providers/:id/live', auth, async (req, res) => {
 app.post('/api/live/:sid/save', auth, async (req, res) => {
   const p = db.providers.find(p => p.id === (req.body || {}).pid && p.userId === req.uid);
   if (!p) return res.status(404).json({ error: 'Provider not found' });
-  try { const st = await B.liveSave(req.params.sid, req.uid); p.cookies = enc(JSON.stringify(st)); p.lastTest = null; save(); res.json({ ok: 1, cookies: st.cookies.length }); } catch (e) { res.status(400).json({ error: e.message }); }
+  try { const st = await B.liveSave(req.params.sid, req.uid); p.cookies = enc(JSON.stringify(st)); p.lastTest = null; save(); res.json({ ok: 1, cookies: st.cookies.length, info: B.sessionInfo(st) }); } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.delete('/api/live/:sid', auth, async (req, res) => { if (B.liveOwns(req.params.sid, req.uid)) await B.liveClose(req.params.sid); res.json({ ok: 1 }); });
 app.get('/health', (_, res) => res.send('ok'));

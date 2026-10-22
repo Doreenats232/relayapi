@@ -76,6 +76,7 @@ async function dropProvider(pid) {
   for (const [k, v] of convs) if (v.pid === pid) convs.delete(k);
   if (c) await c.ctx.close().catch(() => {});
 }
+const sessionInfo = st => { const o = st.origins || [], n = f => o.reduce((a, x) => a + (x[f] || []).length, 0); return (st.cookies || []).length + ' cookies, ' + n('localStorage') + ' localStorage items, ' + n('indexedDB') + ' IndexedDB databases'; };
 async function getCtx(p, step) {
   const sig = sigOf(p), cur = ctxs.get(p.id);
   if (cur && cur.sig === sig) { step('Warm session reused', true); return cur.ctx; }
@@ -83,7 +84,7 @@ async function getCtx(p, step) {
   const ctx = await (await getBrowser()).newContext({
     userAgent: p.ua || UA, viewport: { width: 1280, height: 800 },
     ...(p.cookieList && !Array.isArray(p.cookieList) ? { storageState: p.cookieList } : {}) });
-  if (p.cookieList && !Array.isArray(p.cookieList)) step('Saved browser session loaded', true, (p.cookieList.cookies || []).length + ' cookies');
+  if (p.cookieList && !Array.isArray(p.cookieList)) step('Saved browser session loaded', true, sessionInfo(p.cookieList));
   if (Array.isArray(p.cookieList)) {
     const ck = p.cookieList.map(c => { const o = { name: c.name, value: String(c.value), path: c.path || '/', secure: !!c.secure, httpOnly: !!c.httpOnly };
       if (c.domain) o.domain = c.domain; else o.url = p.url;
@@ -145,7 +146,7 @@ async function doAsk(p, prompt, dbg, conv, retry = true, info = {}) {
   const full = typeof prompt === 'string' ? prompt : prompt.full, lastMsg = typeof prompt === 'string' ? prompt : (prompt.last || prompt.full);
   const trace = [], shots = [], T0 = Date.now(), ckey = conv ? `${p.userId}:${p.id}:${conv}` : '';
   const step = (name, ok, detail = '') => trace.push({ step: name, ok, detail: String(detail).slice(0, 300), t: Date.now() - T0 });
-  let page, raw = '', selInfo = '', warm = false, restored = false, keep = false, ok = false;
+  let page, raw = '', selInfo = '', warm = false, restored = false, keep = false, ok = false, loginWall = false;
   const shot = async label => { if (!dbg || !page) return; try { shots.push({ label, img: (await page.screenshot({ type: 'jpeg', quality: 45 })).toString('base64') }); } catch {} };
   try {
     const ctx = await getCtx(p, step);
@@ -165,7 +166,7 @@ async function doAsk(p, prompt, dbg, conv, retry = true, info = {}) {
     if (!page) {
       makeRoom(); page = await openPage(p, ctx); info.how = info.stale ? 'new chat (old one went stale)' : 'new chat (loaded page)';
       step('Page loaded', true, 'final URL: ' + page.url() + ' — title: ' + await page.title().catch(() => ''));
-      if (p.cookieList && /login|signin|sign-in|auth/i.test(page.url())) step('Login wall?', false, 'Redirected to a login page — session expired or invalid');
+      if (p.cookieList && /login|signin|sign-in|auth/i.test(page.url())) step('Login wall?', false, 'Redirected to a login page — session expired or invalid'); loginWall = true; page.setDefaultTimeout(10000);
     }
     if (ckey && (!warm || restored)) { convs.set(ckey, { page, pid: p.id, last: Date.now() }); }
     keep = !!ckey;
@@ -227,6 +228,7 @@ async function doAsk(p, prompt, dbg, conv, retry = true, info = {}) {
     if (warm && ckey) store.del(ckey); // failed twice on this chat: forget it so the next request starts a fresh one instead of being stuck
     if (page) { const chal = await page.evaluate(() => /verify(ing)? (you are )?human|just a moment|checking your browser|captcha/i.test(document.body.innerText)).catch(() => false);
       if (chal || /__cf_chl|challenge/i.test(page.url())) step('Human verification detected', false, 'Open Live view on this provider, complete the check yourself, then Save session'); }
+    if (loginWall) { step('Underlying error', false, e.message); e = new Error('Not logged in: the site sent us to its login page, so its popup blocks the chat box. Use "Log in" on this provider, sign in fully, save the session, then test again.'); }
     step('Failed', false, e.message);
     await shot('Failure state');
     if (ckey) { convs.delete(ckey); keep = false; }
@@ -298,7 +300,7 @@ async function handle(page, d) {
   else if (d.t === 'back') await page.goBack({ timeout: 15000 }).catch(() => {});
   else if (d.t === 'reload') page.reload({ timeout: 45000 }).catch(() => {});
 }
-async function liveSave(sid, owner) { const s = liveGet(sid, owner), st = await s.ctx.storageState(); await liveClose(sid); return st; }
+async function liveSave(sid, owner) { const s = liveGet(sid, owner), st = await s.ctx.storageState({ indexedDB: true }); await liveClose(sid); return st; }
 async function liveClose(sid) { const s = live.get(sid); if (!s) return; clearTimeout(s.timer); live.delete(sid); await s.ctx.close().catch(() => {}); }
-module.exports = { ask, forget, deleteChat, hasChat: k => !!(store.get(k) || convs.has(k)), setStore: s => { store = s; }, liveStart, liveAttach, liveSave, liveClose, liveOwns: (sid, o) => live.get(sid)?.owner === o };
+module.exports = { sessionInfo, ask, forget, deleteChat, hasChat: k => !!(store.get(k) || convs.has(k)), setStore: s => { store = s; }, liveStart, liveAttach, liveSave, liveClose, liveOwns: (sid, o) => live.get(sid)?.owner === o };
 

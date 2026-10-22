@@ -77,6 +77,8 @@ async function dropProvider(pid) {
   if (c) await c.ctx.close().catch(() => {});
 }
 const sessionInfo = st => { const o = st.origins || [], n = f => o.reduce((a, x) => a + (x[f] || []).length, 0); return (st.cookies || []).length + ' cookies, ' + n('localStorage') + ' localStorage items, ' + n('indexedDB') + ' IndexedDB databases'; };
+// images/fonts/media are only blocked where that is known to work (DeepSeek). The live login browser never blocks them, and other sites may reject a session when their assets are missing. BLOCK_ASSETS=1 forces blocking everywhere, 0 turns it off.
+const blockAssetsFor = p => { if (process.env.BLOCK_ASSETS === '0') return false; if (process.env.BLOCK_ASSETS === '1') return true; try { return /(^|\.)deepseek\.com$/.test(new URL(p.url).hostname); } catch { return false; } };
 async function getCtx(p, step) {
   const sig = sigOf(p), cur = ctxs.get(p.id);
   if (cur && cur.sig === sig) { step('Warm session reused', true); return cur.ctx; }
@@ -94,7 +96,7 @@ async function getCtx(p, step) {
     await ctx.addCookies(ck).catch(e => step('Cookie warning', false, e.message));
     step('Session cookies loaded', true, ck.length + ' cookies');
   }
-  if (process.env.BLOCK_ASSETS !== '0') await ctx.route('**/*', r => ['image', 'media', 'font'].includes(r.request().resourceType()) ? r.abort() : r.continue()).catch(() => {}); // faster loads on a slow server
+  if (blockAssetsFor(p)) await ctx.route('**/*', r => ['image', 'media', 'font'].includes(r.request().resourceType()) ? r.abort() : r.continue()).catch(() => {}); // faster loads on a slow server
   ctx.on('close', () => { if (ctxs.get(p.id) && ctxs.get(p.id).ctx === ctx) ctxs.delete(p.id); });
   ctxs.set(p.id, { ctx, sig });
   return ctx;
@@ -112,9 +114,14 @@ async function diagnose(p, ctx, page) {
   const savedLs = o.flatMap(x => (x.localStorage || []).map(i => i.name)), savedIdb = o.flatMap(x => (x.indexedDB || []).map(d => d.name));
   const ck = await ctx.cookies().catch(() => []);
   const now = await page.evaluate(async () => { let idb = []; try { idb = (await indexedDB.databases()).map(d => d.name); } catch {} return { ls: Object.keys(localStorage), ss: Object.keys(sessionStorage), idb }; }).catch(() => ({ ls: [], ss: [], idb: [] }));
-  const lost = savedLs.filter(k => !now.ls.includes(k));
+  const lost = savedLs.filter(k => !now.ls.includes(k)), t = Date.now() / 1000;
+  const auth = ck.filter(c => /jwt|token|session|sid|auth/i.test(c.name)).map(c => {
+    let s = c.name + ': ' + (c.expires > 0 ? 'cookie expires in ' + Math.round((c.expires - t) / 60) + ' min' : 'session cookie') + (c.httpOnly ? ', httpOnly' : '');
+    try { const j = JSON.parse(Buffer.from(c.value.split('.')[1], 'base64url').toString()); if (j.exp) s += ', token expires in ' + Math.round((j.exp - t) / 60) + ' min' + (j.iat ? ' (lifetime ' + Math.round((j.exp - j.iat) / 60) + ' min)' : ''); } catch {}
+    return s; });
   return [
     'cookies in browser: ' + (ck.map(c => c.name).join(', ') || 'none'),
+    'login cookies: ' + (auth.join(' | ') || 'none'),
     'localStorage: saved ' + savedLs.length + ', still present ' + (savedLs.length - lost.length) + (lost.length ? ', removed by the site: ' + lost.join(', ') : ''),
     'sessionStorage keys (not saved by design): ' + (now.ss.join(', ') || 'none'),
     'IndexedDB saved: ' + (savedIdb.join(', ') || 'none') + ' | now: ' + (now.idb.join(', ') || 'none'),

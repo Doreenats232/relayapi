@@ -250,6 +250,7 @@ const normCookies = (list, url) => list.map(c => { const o = { name: c.name, val
 const touch = (sid, s) => { clearTimeout(s.timer); s.timer = setTimeout(() => liveClose(sid), 10 * 60 * 1000); };
 async function liveStart(p, owner) {
   for (const [k, v] of live) if (v.owner === owner) await liveClose(k);
+  await dropProvider(p.id).catch(() => {}); // free RAM on the small server; saved chats reopen from their URL later
   const opts = { userAgent: p.ua || UA, viewport: { width: LW, height: LH } };
   if (p.cookieList && !Array.isArray(p.cookieList)) opts.storageState = p.cookieList;
   const ctx = await (await getBrowser()).newContext(opts);
@@ -261,7 +262,7 @@ async function liveStart(p, owner) {
 }
 function liveGet(sid, owner) { const s = live.get(sid); if (!s || s.owner !== owner) throw new Error('Live session ended'); touch(sid, s); return s; }
 const LW = 1024, LH = 640;
-const CAST = { low: { quality: 35, maxWidth: 720, maxHeight: 450 }, high: { quality: 60, maxWidth: 1024, maxHeight: 640 } };
+const CAST = { low: { quality: 35, maxWidth: 720, maxHeight: 450, everyNthFrame: 2 }, high: { quality: 60, maxWidth: 1024, maxHeight: 640 } };
 const clamp = (v, m) => Math.max(0, Math.min(m, +v || 0));
 async function liveAttach(sid, owner, ws) {
   const s = liveGet(sid, owner), { page, ctx } = s;
@@ -287,7 +288,7 @@ async function liveAttach(sid, owner, ws) {
     if (d.t === 'move') mouse('mouseMoved', d, btn ? (btn === 2 ? 'right' : 'left') : 'none', btn);
     else if (d.t === 'down') { btn = d.b === 2 ? 2 : 1; mouse('mousePressed', d, bn, btn, { clickCount: 1 }); }
     else if (d.t === 'up') { mouse('mouseReleased', d, bn, 0, { clickCount: 1 }); btn = 0; }
-    else if (d.t === 'wheel') mouse('mouseWheel', d, 'none', btn, { deltaX: 0, deltaY: Math.max(-1500, Math.min(1500, +d.dy || 0)) });
+    else if (d.t === 'wheel') mouse('mouseWheel', d, 'none', btn, { deltaX: Math.max(-1500, Math.min(1500, +d.dx || 0)), deltaY: Math.max(-1500, Math.min(1500, +d.dy || 0)) });
     else if (d.t === 'quality') cast(d.q).catch(() => {});
     else kq = kq.then(() => handle(page, d)).catch(() => {});
   });

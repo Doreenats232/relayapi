@@ -2,6 +2,10 @@ const { chromium } = require('playwright-core');
 const crypto = require('crypto');
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
 let browser; const queues = new Map();
+// per-site reading rules. busy: lines that mean "the AI is still working" (text can sit unchanged for a long time while it thinks, so don't call the reply finished while one is on screen);
+// strip: page furniture lines to drop from the reply; waitMs: how long to wait for a reply (default 120s)
+const SITE = { 'miniapps.ai': { busy: /^(in progress|thinking(\.{3}|…)?|is typing(\.{3}|…)?|generating(\.{3}|…)?)$/i, strip: /^(M|You|AI Builder|Thought for .+|\d{1,2}:\d{2}\s?[AP]M|•|·|Done|Show (more|less))$/i, waitMs: 600000 } };
+const siteOf = p => { try { const h = new URL(p.url).hostname, k = Object.keys(SITE).find(k => h === k || h.endsWith('.' + k)); return k ? SITE[k] : {}; } catch { return {}; } };
 const HINTS = { 'chat.deepseek.com': '.ds-markdown' }; // known reply containers (used only if present on the page)
 const BOILER = /^(AI-generated, for reference only|Copy|Regenerate|Share|Like|Dislike|Retry|Read aloud|Edit message)$/i;
 const tidy = lines => lines.filter((l, i) => l && !BOILER.test(l) && l !== lines[i - 1]);
@@ -216,7 +220,7 @@ async function doAsk(p, prompt, dbg, conv, retry = true, info = {}) {
     if (sendSel) { try { await page.click(sendSel, { timeout: 4000 }); sent = true; } catch (e) { step('Send button selector unusable — pressing Enter instead', false, e.message.split('\n')[0]); } }
     if (!sent) await page.keyboard.press('Enter');
     step('Message sent', true, sent ? 'clicked ' + sendSel : 'pressed Enter');
-    let src = 'auto-detect (new page text)';
+    let src = 'auto-detect (new page text)'; const site = siteOf(p); let busyNow = false;
     const read = async () => {
       if (rsel) {
         const els = page.locator(rsel), n = await els.count();
@@ -227,14 +231,16 @@ async function doAsk(p, prompt, dbg, conv, retry = true, info = {}) {
       raw = await page.evaluate(() => document.body.innerText);
       const b = new Map(bc), q = new Map(pc), out = [];
       for (const l of raw.split('\n').map(s => s.trim())) { if (!l) continue; if (b.get(l) > 0) { b.set(l, b.get(l) - 1); continue; } if (q.get(l) > 0) { q.set(l, q.get(l) - 1); continue; } out.push(l); }
-      return tidy(out).join('\n');
+      busyNow = !!(site.busy && out.some(l => site.busy.test(l)));
+      return tidy(out).filter(l => !(site.busy && site.busy.test(l)) && !(site.strip && site.strip.test(l))).join('\n');
     };
     let last = '', lastChange = Date.now(), result = ''; const t1 = Date.now();
-    while (Date.now() - t1 < 120000) {
+    const maxMs = (+process.env.REPLY_TIMEOUT_SEC * 1000) || site.waitMs || 120000;
+    while (Date.now() - t1 < maxMs) {
       await page.waitForTimeout(400);
       const cur = await read().catch(() => '');
       if (cur !== last) { last = cur; lastChange = Date.now(); }
-      else if (cur && Date.now() - lastChange >= STABLE_MS) { result = cur; break; }
+      else if (cur && !busyNow && Date.now() - lastChange >= STABLE_MS) { result = cur; break; }
     }
     if (!result && last) result = last;
     if (!result) throw new Error('Timed out waiting for reply (no new text appeared)');

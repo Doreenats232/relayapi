@@ -21,7 +21,7 @@ const spares = new Map(); // providerId -> { promise, at }
 // saved chats: conversation key -> chat page URL, so a chat survives restarts, idle closes and evictions. server.js plugs in the real (Turso-backed) store.
 let store = { get: () => null, set: () => {}, del: () => {} };
 const pathOf = u => { try { return new URL(u).pathname.replace(/\/+$/, ''); } catch { return ''; } };
-const LOGINISH = /login|signin|sign-in|sign_in|auth/i;
+const LOGINISH = /login|signin|sign-in|sign_in|auth/i, LOGIN_URL = /login|signin|sign-in|auth/i;
 const isChatUrl = (p, u) => { const a = pathOf(u); return !!a && a !== pathOf(p.url) && !LOGINISH.test(a); }; // true once the site moved to a real chat URL
 async function settle(page, max = 8000) { // let a reopened chat finish rendering its history before we measure it
   let last = -1, same = 0; const t0 = Date.now();
@@ -144,7 +144,7 @@ function prewarm(p) { // load the next page in the background so the next new ch
   const entry = { at: Date.now() };
   entry.promise = (async () => {
     const page = await openPage(p, await getCtx(p, () => {}));
-    try { await page.locator(inputSel(p)).first().waitFor({ state: 'visible', timeout: 25000 }); await page.waitForTimeout(1200); } catch (e) { await page.close().catch(() => {}); throw e; }
+    try { await page.locator(inputSel(p)).filter({ visible: true }).first().waitFor({ state: 'visible', timeout: 25000 }); await page.waitForTimeout(1200); } catch (e) { await page.close().catch(() => {}); throw e; }
     return page;
   })();
   entry.promise.catch(() => { if (spares.get(p.id) === entry) spares.delete(p.id); });
@@ -195,13 +195,18 @@ async function doAsk(p, prompt, dbg, conv, retry = true, info = {}) {
       makeRoom(); page = await openPage(p, ctx); info.how = info.stale ? 'new chat (old one went stale)' : 'new chat (loaded page)';
       step('Page loaded', true, 'final URL: ' + page.url() + ' — title: ' + await page.title().catch(() => ''));
       if (p.cookieList && /login|signin|sign-in|auth/i.test(page.url())) {
-        step('Login wall?', false, 'Redirected to a login page — session expired or invalid'); loginWall = true; page.setDefaultTimeout(10000);
-        for (const l of await diagnose(p, ctx, page)) step('Session check', false, l);
+        step('Login wall?', false, 'Redirected to a login page — giving the site a moment to restore the saved login');
+        // some sites bounce to their login page first and restore the login a few seconds later (a bot check runs in between): wait, reload once, then give up
+        const waitOut = async ms => { for (let t = 0; t < ms && LOGIN_URL.test(page.url()); t += 1000) await page.waitForTimeout(1000); };
+        await waitOut(20000);
+        if (LOGIN_URL.test(page.url())) { try { await page.goto(p.url, { waitUntil: 'domcontentloaded', timeout: 45000 }); } catch {} await waitOut(20000); }
+        if (LOGIN_URL.test(page.url())) { loginWall = true; for (const l of await diagnose(p, ctx, page)) step('Session check', false, l); }
+        else step('Session restored', true, page.url());
       }
     }
     if (ckey && (!warm || restored)) { convs.set(ckey, { page, pid: p.id, last: Date.now() }); }
     keep = !!ckey;
-    const sel = inputSel(p), box = page.locator(sel).first();
+    const sel = inputSel(p), box = page.locator(sel).filter({ visible: true }).first(); // first VISIBLE match (the first one in the page can be a hidden element)
     await box.waitFor({ state: 'visible', timeout: 25000 });
     if (!warm || restored) await settle(page, restored ? 8000 : 6000); // let the page finish loading its chat history BEFORE we measure it, or old messages look like a "new reply" (miniapps.ai returned its whole history)
     await shot(warm ? '1. Open chat' : '1. Page ready');

@@ -138,24 +138,50 @@ app.get('/api/logs', auth, (req, res) => res.json(db.logs.filter(l => l.userId =
 
 // ---------- gateway ----------
 const buckets = {};
-function toPrompt(messages) {
+const txt = c => Array.isArray(c) ? c.map(x => typeof x === 'string' ? x : (x && x.text) || '').join('\n') : String(c == null ? '' : c);
+const toolsNote = tools => (Array.isArray(tools) && tools.length)
+  ? '[Tools you can use. To call a tool, reply with ONLY a JSON object like {"tool_calls":[{"name":"TOOL_NAME","arguments":{...}}]} and nothing else. When you do not need a tool, answer normally.]\n' + JSON.stringify(tools.map(t => t.function || t)) + '\n\n'
+  : '';
+const fmtMsg = m => m.role === 'tool' ? `[tool result${m.name ? ' from ' + m.name : ''}]\n${txt(m.content)}`
+  : (m.role === 'assistant' && m.tool_calls ? `assistant: ${txt(m.content)} ${JSON.stringify({ tool_calls: m.tool_calls.map(c => ({ name: c.function && c.function.name, arguments: c.function && c.function.arguments })) })}` : `${m.role}: ${txt(m.content)}`);
+function toPrompt(messages, tools) {
   if (!Array.isArray(messages) || !messages.length) return '';
-  if (messages.length === 1) return String(messages[0].content);
-  return messages.map(m => `${m.role}: ${m.content}`).join('\n') + '\nassistant:';
+  const n = toolsNote(tools);
+  if (messages.length === 1 && !n) return txt(messages[0].content);
+  return n + messages.map(fmtMsg).join('\n') + '\nassistant:';
+}
+// what a chat that is already open on the site still needs: the system prompt/tools when they changed, plus everything after the last assistant reply (user messages AND tool results)
+const sysSent = {};
+function deltaOf(body, ck) {
+  const ms = Array.isArray(body.messages) ? body.messages : [];
+  let i = ms.length; while (i > 0 && ms[i - 1].role !== 'assistant') i--;
+  const tail = ms.slice(i).filter(m => m.role !== 'system');
+  const sys = ms.filter(m => m.role === 'system').map(m => txt(m.content)).join('\n\n'), note = toolsNote(body.tools), h = sha(sys + '|' + note);
+  const head = sysSent[ck] !== h && (sys || note) ? (sys ? '[Instructions for the rest of this chat — keep following them]\n' + sys + '\n\n' : '') + note : '';
+  const msg = tail.length === 1 && tail[0].role === 'user' ? txt(tail[0].content) : tail.map(fmtMsg).join('\n');
+  return { text: head + msg, h };
+}
+function parseTools(text, tools) {
+  if (!Array.isArray(tools) || !tools.length) return null;
+  const m = String(text).replace(/```(?:json)?/g, '').match(/\{[\s\S]*"tool_calls"[\s\S]*\}/); if (!m) return null;
+  try { const j = JSON.parse(m[0]); if (!Array.isArray(j.tool_calls) || !j.tool_calls.length) return null;
+    return j.tool_calls.map(c => ({ id: 'call_' + id(), type: 'function', function: { name: c.name, arguments: typeof c.arguments == 'string' ? c.arguments : JSON.stringify(c.arguments || {}) } })); } catch { return null; }
 }
 const lastUserOf = ms => String(([...(ms || [])].reverse().find(m => m && m.role === 'user') || {}).content || '');
 const convOf = v => String(v || '').replace(/[^\w-]/g, '').slice(0, 64) || undefined;
 async function run(userId, keyId, body, res, o = {}) {
-  const t0 = Date.now(), prompt = toPrompt(body.messages), info = {};
+  const t0 = Date.now(), prompt = toPrompt(body.messages, body.tools), info = {};
   const p = o.provider || db.providers.find(p => p.userId === userId && p.name === body.model);
   const log = (ok, err) => { db.logs.push({ ts: Date.now(), userId, keyId, provider: p ? p.name : body.model, ms: Date.now() - t0, ok, err: err || '', promptLen: prompt.length, how: info.how || '' }); if (db.logs.length > 1500) db.logs.splice(0, 500); save(); };
   if (!p) return res.status(404).json({ error: { message: `Provider "${body.model}" not found. Add it in the dashboard.` } });
   if (!prompt) return res.status(400).json({ error: { message: 'messages required' } });
   try {
-    const text = await ask(prov(p), { full: prompt, last: lastUserOf(body.messages) }, false, o.conv || convOf(body.conversation), info); log(true);
+    const cv = o.conv || convOf(body.conversation), ck = `${p.userId}:${p.id}:${cv}`, d = deltaOf(body, ck);
+    const text = await ask(prov(p), { full: prompt, last: d.text || lastUserOf(body.messages) }, false, cv, info); log(true); sysSent[ck] = d.h;
     res.set('X-Relay-Mode', info.how || '');
+    const tc = parseTools(text, body.tools);
     res.json({ id: 'chatcmpl-' + id(), object: 'chat.completion', created: Math.floor(Date.now() / 1000), model: p.name,
-      choices: [{ index: 0, message: { role: 'assistant', content: text }, finish_reason: 'stop' }], usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 } });
+      choices: [{ index: 0, message: tc ? { role: 'assistant', content: null, tool_calls: tc } : { role: 'assistant', content: text }, finish_reason: tc ? 'tool_calls' : 'stop' }], usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 } });
   } catch (e) { log(false, e.message); res.status(502).json({ error: { message: 'Provider failed: ' + e.message } }); }
 }
 app.post('/v1/chat/completions', (req, res) => {
@@ -190,7 +216,7 @@ app.post('/api/playground', auth, async (req, res) => {
 app.post('/api/playground/reset', auth, async (req, res) => { // "New chat" button: the only way the playground chat of a provider is ever replaced
   const p = db.providers.find(p => p.userId === req.uid && p.name === (req.body || {}).model);
   if (!p) return res.status(404).json({ error: 'Provider not found' });
-  await B.forget(`${p.userId}:${p.id}:playground`); res.json({ ok: 1 });
+  await B.forget(`${p.userId}:${p.id}:playground`); delete sysSent[`${p.userId}:${p.id}:playground`]; res.json({ ok: 1 });
 });
 app.post('/api/providers/:id/live', auth, async (req, res) => {
   const p = db.providers.find(p => p.id === req.params.id && p.userId === req.uid);

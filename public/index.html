@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>RelayAPI — Turn any AI website into an API</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -69,6 +69,10 @@ pre.raw{max-height:180px;overflow:auto;white-space:pre-wrap;background:#05060a;b
 .lv{position:relative;border:1px solid var(--bd2);border-radius:12px;overflow:hidden;background:#000;outline:0;cursor:pointer;min-height:200px}.lv:focus{border-color:var(--a1);box-shadow:0 0 0 3px #6366f126}.lv canvas{width:100%;display:block;touch-action:none;outline:0;aspect-ratio:1280/800;background:#fff}.modal.xl>.card{max-width:1180px}.lvbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center}.lvbar input{flex:1;min-width:160px;background:var(--s2);border:1px solid var(--bd2);border-radius:9px;padding:8px 11px;outline:0}
 .sk{height:90px;border-radius:14px;background:linear-gradient(90deg,var(--s1),var(--s3),var(--s1));background-size:200% 100%;animation:sm 1.2s infinite}@keyframes sm{to{background-position:-200% 0}}
 .keybox{display:flex;gap:8px;align-items:center;background:#05060a;border:1px dashed #34d39966;border-radius:11px;padding:12px;margin:12px 0;word-break:break-all;font-size:13px;color:var(--ok)}
+@media(max-width:600px){html,body{overflow-x:hidden}.main{padding:12px 10px 40px}.top{padding:10px 12px}.banner{padding:8px 12px}
+.pg{height:calc(100vh - 100px);height:calc(100dvh - 100px);min-height:380px;border-radius:12px}.pgh{flex-wrap:wrap;padding:10px 12px;gap:8px}.pgh select{max-width:46%}.chat{padding:12px 10px}.msg{max-width:96%;font-size:14px}.pgf{padding:10px;padding-bottom:calc(10px + env(safe-area-inset-bottom))}
+input,textarea,select{font-size:16px!important}.pgrid{grid-template-columns:1fr}.grid4{grid-template-columns:1fr 1fr;gap:10px}.stat .n{font-size:24px}.card{padding:14px}
+.modal{padding:2vh 8px}.modal>.card,.modal.wide>.card,.modal.xl>.card{max-width:100%}.tw table{font-size:12px}.hd{align-items:flex-start}.hd .btn{width:100%}.lvbar input{min-width:100px}.code pre{font-size:11.5px}.auth{min-height:100dvh}.formside{padding:18px}.box h2{font-size:22px}}
 @media(max-width:860px){.auth{grid-template-columns:1fr}.brand{display:none}.shell{grid-template-columns:1fr}.side{position:fixed;z-index:30;transform:translateX(-100%);transition:.25s;width:260px}.side.open{transform:none}.burger{display:inline-flex}.main{padding:20px 16px 60px}.top{padding:14px 16px}.grid2,.row{grid-template-columns:1fr}}
 </style></head><body><div id="root"></div><div class="toasts" id="toasts"></div>
 <script>
@@ -84,7 +88,7 @@ function toast(m,t='ok'){const e=document.createElement('div');e.className='toas
 function copy(t){navigator.clipboard.writeText(t).then(()=>toast('Copied to clipboard'))}
 function modal(html,wide){const m=document.createElement('div');m.className='modal'+(wide?' wide':'');m.onmousedown=e=>{if(e.target==m)m.remove()};m.innerHTML=`<div class="card">${html}</div>`;document.body.appendChild(m);return m}
 const closeM=()=>document.querySelectorAll('.modal').forEach(m=>m.remove());
-const api=async(p,m='GET',b)=>{const r=await fetch(p,{method:m,headers:{'Content-Type':'application/json',Authorization:'Bearer '+tok},body:b?JSON.stringify(b):undefined});const j=await r.json();if(!r.ok){if(r.status==401&&p.startsWith('/api')&&!/login|signup|google/.test(p))logout();throw new Error(j.error?.message||j.error||'Error')}return j};
+const api=async(p,m='GET',b)=>{let r;for(let i=0;;i++){try{r=await fetch(p,{method:m,headers:{'Content-Type':'application/json',Authorization:'Bearer '+tok},body:b?JSON.stringify(b):undefined});break}catch(e){if(i>=2||m!='GET')throw new Error('Cannot reach the server. If Render is redeploying, wait a minute and refresh. If it keeps happening on this device, it is your connection, not the app.');await new Promise(z=>setTimeout(z,2500))}}const j=await r.json().catch(()=>({error:'Server answered '+r.status+' (it may be restarting)'}));if(!r.ok){if(r.status==401&&p.startsWith('/api')&&!/login|signup|google/.test(p))logout();throw new Error(j.error?.message||j.error||'Error')}return j};
 function logout(){localStorage.clear();tok='';location.hash='';render()}
 const page=()=>(location.hash.replace('#/','')||'overview');
 window.onhashchange=()=>tok&&shell();

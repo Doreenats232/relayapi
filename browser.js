@@ -70,7 +70,7 @@ const sigOf = p => crypto.createHash('sha1').update((p.cookies || '') + '|' + (p
 async function getBrowser() {
   if (!browser || !browser.isConnected()) {
     ctxs.clear(); convs.clear(); spares.clear();
-    browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || undefined, args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'] });
+    browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || undefined, args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--disable-extensions', '--disable-background-networking', '--mute-audio'] });
     browser.on('disconnected', () => { ctxs.clear(); convs.clear(); spares.clear(); });
   }
   return browser;
@@ -274,7 +274,7 @@ async function doAsk(p, prompt, dbg, conv, retry = true, info = {}) {
     throw e;
   } finally {
     if (page && !keep) await page.close().catch(() => {});
-    if (ok && !conv) prewarm(p);
+    if (ok && !conv && process.env.PREWARM === '1') prewarm(p); // spare pages cost ~150MB each; off by default so the free 512MB instance does not run out of memory
   }
 }
 

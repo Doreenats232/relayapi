@@ -61,6 +61,7 @@ app.post('/api/signup', (req, res) => {
   db.users.push(u); save(); res.json({ token: session(u.id), email: u.email });
 });
 const GCID = process.env.GOOGLE_CLIENT_ID || '130548633634-ph56vpk62f83a3djqlr0spik6crc6vf4.apps.googleusercontent.com'; // public client ID, safe to ship
+app.get('/healthz', (req, res) => res.json({ ok: 1, uptimeSec: Math.round(process.uptime()), rssMB: Math.round(process.memoryUsage().rss / 1048576) }));
 app.get('/api/config', (req, res) => res.json({ googleClientId: GCID, storage: TURSO ? 'turso' : 'file' }));
 app.post('/api/google', async (req, res) => {
   if (!GCID) return res.status(400).json({ error: 'Google sign-in is not configured' });

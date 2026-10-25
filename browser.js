@@ -187,7 +187,8 @@ async function doAsk(p, prompt, dbg, conv, retry = true, info = {}) {
       else if (pg) {
         const now = pg.url(); await pg.close().catch(() => {});
         if (LOGINISH.test(pathOf(now))) throw new Error('Redirected to a login page — session expired. Use "Log in" on the provider to sign in again (the saved chat is kept).');
-        store.del(ckey); info.stale = true; step('Saved chat no longer exists — starting a new one', false, now);
+        if (pathOf(now) !== pathOf(p.url)) throw new Error('The saved chat did not open cleanly (' + pathOf(now) + ') — it is kept, try again in a moment');
+        store.del(ckey); info.stale = true; step('Saved chat was deleted on the site (it bounced to the home page) — starting a new one', false, now);
       } else throw new Error('Could not open the saved chat (site slow or unreachable) — it is kept, try again');
     }
     if (!page) { page = await takeSpare(p); if (page) { info.how = 'new chat (pre-loaded page)'; step('Used pre-loaded page', true, 'ready instantly'); } }
@@ -263,7 +264,7 @@ async function doAsk(p, prompt, dbg, conv, retry = true, info = {}) {
       if (page) await page.close().catch(() => {});
       return doAsk(p, prompt, dbg, conv, false, info);
     }
-    if (warm && ckey) store.del(ckey); // failed twice on this chat: forget it so the next request starts a fresh one instead of being stuck
+    // a failed request never forgets the saved chat any more (that is what opened a fresh chat on the site after every hiccup); only revoking the key or "New chat" does
     if (page) { const chal = await page.evaluate(() => /verify(ing)? (you are )?human|just a moment|checking your browser|captcha/i.test(document.body.innerText)).catch(() => false);
       if (chal || /__cf_chl|challenge/i.test(page.url())) step('Human verification detected', false, 'Open Live view on this provider, complete the check yourself, then Save session'); }
     if (loginWall) { step('Underlying error', false, e.message); e = new Error('Not logged in: the site sent us to its login page, so its popup blocks the chat box. Use "Log in" on this provider, sign in fully, save the session, then test again.'); }

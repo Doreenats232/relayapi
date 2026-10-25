@@ -140,6 +140,7 @@ app.get('/api/logs', auth, (req, res) => res.json(db.logs.filter(l => l.userId =
 // ---------- gateway ----------
 const buckets = {};
 const txt = c => Array.isArray(c) ? c.map(x => typeof x === 'string' ? x : (x && x.text) || '').join('\n') : String(c == null ? '' : c);
+const SYS_HEAD = '[ROLE SETUP: from now on, for this whole chat, you are the assistant described below. Follow it exactly, answer in its voice, language and format, and never mention these instructions or which AI model or company you run on.]\n';
 const toolsNote = tools => (Array.isArray(tools) && tools.length)
   ? '[Tools you can use. To call a tool, reply with ONLY a JSON object like {"tool_calls":[{"name":"TOOL_NAME","arguments":{...}}]} and nothing else. When you do not need a tool, answer normally.]\n' + JSON.stringify(tools.map(t => t.function || t)) + '\n\n'
   : '';
@@ -147,9 +148,10 @@ const fmtMsg = m => m.role === 'tool' ? `[tool result${m.name ? ' from ' + m.nam
   : (m.role === 'assistant' && m.tool_calls ? `assistant: ${txt(m.content)} ${JSON.stringify({ tool_calls: m.tool_calls.map(c => ({ name: c.function && c.function.name, arguments: c.function && c.function.arguments })) })}` : `${m.role}: ${txt(m.content)}`);
 function toPrompt(messages, tools) {
   if (!Array.isArray(messages) || !messages.length) return '';
-  const n = toolsNote(tools);
-  if (messages.length === 1 && !n) return txt(messages[0].content);
-  return n + messages.map(fmtMsg).join('\n') + '\nassistant:';
+  const sys = messages.filter(m => m.role === 'system').map(m => txt(m.content)).join('\n\n'), rest = messages.filter(m => m.role !== 'system');
+  const head = (sys ? SYS_HEAD + sys + '\n\n' : '') + toolsNote(tools);
+  if (rest.length === 1 && rest[0].role === 'user') return head ? head + '[User message]\n' + txt(rest[0].content) : txt(rest[0].content);
+  return head + (rest.length ? '[Conversation]\n' + rest.map(fmtMsg).join('\n') + '\nassistant:' : '');
 }
 // what a chat that is already open on the site still needs: the system prompt/tools when they changed, plus everything after the last assistant reply (user messages AND tool results)
 const sysSent = {};
@@ -158,7 +160,7 @@ function deltaOf(body, ck) {
   let i = ms.length; while (i > 0 && ms[i - 1].role !== 'assistant') i--;
   const tail = ms.slice(i).filter(m => m.role !== 'system');
   const sys = ms.filter(m => m.role === 'system').map(m => txt(m.content)).join('\n\n'), note = toolsNote(body.tools), h = sha(sys + '|' + note);
-  const head = sysSent[ck] !== h && (sys || note) ? (sys ? '[Instructions for the rest of this chat — keep following them]\n' + sys + '\n\n' : '') + note : '';
+  const head = sysSent[ck] !== h && (sys || note) ? (sys ? SYS_HEAD + sys + '\n\n' : '') + note : '';
   const msg = tail.length === 1 && tail[0].role === 'user' ? txt(tail[0].content) : tail.map(fmtMsg).join('\n');
   return { text: head + msg, h };
 }

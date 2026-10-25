@@ -69,11 +69,26 @@ pre.raw{max-height:180px;overflow:auto;white-space:pre-wrap;background:#05060a;b
 .lv{position:relative;border:1px solid var(--bd2);border-radius:12px;overflow:hidden;background:#000;outline:0;cursor:pointer;min-height:200px}.lv:focus{border-color:var(--a1);box-shadow:0 0 0 3px #6366f126}.lv canvas{width:100%;display:block;touch-action:none;outline:0;aspect-ratio:1280/800;background:#fff}.modal.xl>.card{max-width:1180px}.lvbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center}.lvbar input{flex:1;min-width:160px;background:var(--s2);border:1px solid var(--bd2);border-radius:9px;padding:8px 11px;outline:0}
 .sk{height:90px;border-radius:14px;background:linear-gradient(90deg,var(--s1),var(--s3),var(--s1));background-size:200% 100%;animation:sm 1.2s infinite}@keyframes sm{to{background-position:-200% 0}}
 .keybox{display:flex;gap:8px;align-items:center;background:#05060a;border:1px dashed #34d39966;border-radius:11px;padding:12px;margin:12px 0;word-break:break-all;font-size:13px;color:var(--ok)}
-@media(max-width:600px){html,body{overflow-x:hidden}.main{padding:12px 10px 40px}.top{padding:10px 12px}.banner{padding:8px 12px}
-.pg{height:calc(100vh - 100px);height:calc(100dvh - 100px);min-height:380px;border-radius:12px}.pgh{flex-wrap:wrap;padding:10px 12px;gap:8px}.pgh select{max-width:46%}.chat{padding:12px 10px}.msg{max-width:96%;font-size:14px}.pgf{padding:10px;padding-bottom:calc(10px + env(safe-area-inset-bottom))}
-input,textarea,select{font-size:16px!important}.pgrid{grid-template-columns:1fr}.grid4{grid-template-columns:1fr 1fr;gap:10px}.stat .n{font-size:24px}.card{padding:14px}
-.modal{padding:2vh 8px}.modal>.card,.modal.wide>.card,.modal.xl>.card{max-width:100%}.tw table{font-size:12px}.hd{align-items:flex-start}.hd .btn{width:100%}.lvbar input{min-width:100px}.code pre{font-size:11.5px}.auth{min-height:100dvh}.formside{padding:18px}.box h2{font-size:22px}}
 @media(max-width:860px){.auth{grid-template-columns:1fr}.brand{display:none}.shell{grid-template-columns:1fr}.side{position:fixed;z-index:30;transform:translateX(-100%);transition:.25s;width:260px}.side.open{transform:none}.burger{display:inline-flex}.main{padding:20px 16px 60px}.top{padding:14px 16px}.grid2,.row{grid-template-columns:1fr}}
+@media(max-width:860px){html{-webkit-text-size-adjust:100%}.shell{grid-template-columns:minmax(0,1fr)}.shell>*,.main{min-width:0}.side{width:82vw;max-width:300px}.top h1{font-size:clamp(16px,4.6vw,20px)}}
+@media(max-width:600px){
+html,body{overflow-x:hidden}body{font-size:15px;overflow-wrap:anywhere}
+.main{padding:12px 12px 48px}.top{padding:10px 12px;gap:8px}.banner{padding:8px 12px;font-size:12.5px}
+.card{padding:14px}.btn{min-height:42px}.btn.sm{min-height:38px;padding:7px 11px}
+input,textarea,select{font-size:16px!important}.fld input,.fld select,.fld textarea{padding:12px 13px}
+.formside{padding:20px 16px;min-height:100vh;min-height:100dvh}.box h2{font-size:23px}
+.grid4{grid-template-columns:1fr 1fr;gap:10px}.stat .n{font-size:24px}.pgrid{grid-template-columns:1fr}.row,.grid2{grid-template-columns:1fr}
+.hd{flex-direction:column;align-items:stretch}.hd>.btn,.hd>div>.btn{width:100%}
+.tw table{min-width:520px;font-size:12.5px}th,td{padding:8px}
+code{font-size:11.5px;word-break:break-all}.code pre{font-size:11.5px;white-space:pre-wrap;word-break:break-all;padding:12px}pre.raw{font-size:11.5px}
+.tr{flex-wrap:wrap;gap:4px 10px}.tr b{min-width:0;flex:1 1 100%}.shots{grid-template-columns:1fr}
+.modal{padding:2vh 8px}.modal>.card,.modal.wide>.card{max-width:100%;padding:14px}.mh h3{font-size:16px}
+.toasts{left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom))}
+.tabs,.chips{overflow-x:auto;flex-wrap:nowrap}.tabs button,.chip{white-space:nowrap}.ep{flex-wrap:wrap}
+.pg{height:calc(100vh - 100px);height:calc(100dvh - 100px);min-height:380px;border-radius:12px}.pgh{flex-wrap:wrap;padding:10px 12px;gap:8px}.pgh select{flex:1 1 140px;max-width:100%}.tog{margin-left:0}
+.chat{padding:12px 10px}.msg{max-width:96%;font-size:14.5px}.pgf{padding:10px;padding-bottom:calc(10px + env(safe-area-inset-bottom))}
+}
+@media(max-width:380px){.grid4{grid-template-columns:1fr}.btn{padding:10px 12px}.main{padding:10px 10px 48px}}
 </style></head><body><div id="root"></div><div class="toasts" id="toasts"></div>
 <script>
 const $=s=>document.querySelector(s),root=$('#root'),sleep=ms=>new Promise(r=>setTimeout(r,ms));

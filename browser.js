@@ -4,9 +4,9 @@ const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 let browser; const queues = new Map();
 // per-site reading rules. busy: lines that mean "the AI is still working" (text can sit unchanged for a long time while it thinks, so don't call the reply finished while one is on screen);
 // strip: page furniture lines to drop from the reply; waitMs: how long to wait for a reply (default 120s)
-const SITE = { 'gemini.google.com': { strip: /^(conversation with gemini|you said|gemini said|show thinking|hide thinking|copy|good response|bad response|share( & export)?|more options|redo|modify response|listen)$/i, waitMs: 180000 }, 'miniapps.ai': { busy: /^(in progress|thinking(\.{3}|…)?|is typing(\.{3}|…)?|generating(\.{3}|…)?)$/i, strip: /^(M|You|AI Builder|Thought for .+|\d{1,2}:\d{2}\s?[AP]M|•|·|Done|Show (more|less))$/i, waitMs: 600000 } };
+const SITE = { 'gemini.google.com': { after: /^gemini said$/i, strip: /^(conversation with gemini|you said\b.*|gemini said|show thinking|hide thinking|copy|good response|bad response|share( & export)?|more options|redo|modify response|listen|gemini is ai and can make mistakes\.?)$/i, waitMs: 180000 }, 'miniapps.ai': { busy: /^(in progress|thinking(\.{3}|…)?|is typing(\.{3}|…)?|generating(\.{3}|…)?)$/i, strip: /^(M|You|AI Builder|Thought for .+|\d{1,2}:\d{2}\s?[AP]M|•|·|Done|Show (more|less))$/i, waitMs: 600000 } };
 const siteOf = p => { try { const h = new URL(p.url).hostname, k = Object.keys(SITE).find(k => h === k || h.endsWith('.' + k)); return k ? SITE[k] : {}; } catch { return {}; } };
-const HINTS = { 'chat.deepseek.com': '.ds-markdown', 'gemini.google.com': 'model-response message-content' }; // known reply containers (used only if present on the page)
+const HINTS = { 'chat.deepseek.com': '.ds-markdown', 'gemini.google.com': 'model-response message-content, .model-response-text' }; // known reply containers (used only if present on the page)
 const BOILER = /^(AI-generated, for reference only|Copy|Regenerate|Share|Like|Dislike|Retry|Read aloud|Edit message)$/i;
 const tidy = lines => lines.filter((l, i) => l && !BOILER.test(l) && l !== lines[i - 1]);
 const cl = v => { v = String(v || '').trim(); return /^(blank|auto|none|optional|n\/a)\b|press enter|auto-detect/i.test(v) ? '' : v; }; // ignore placeholder text pasted into selector fields
@@ -241,7 +241,9 @@ async function doAsk(p, prompt, dbg, conv, retry = true, info = {}) {
       const b = new Map(bc), q = new Map(pc), out = [];
       for (const l of raw.split('\n').map(s => s.trim())) { if (!l) continue; if (b.get(l) > 0) { b.set(l, b.get(l) - 1); continue; } if (q.get(l) > 0) { q.set(l, q.get(l) - 1); continue; } out.push(l); }
       busyNow = !!(site.busy && out.some(l => site.busy.test(l)));
-      return tidy(out).filter(l => !(site.busy && site.busy.test(l)) && !(site.strip && site.strip.test(l))).join('\n');
+      let lines = tidy(out);
+      if (site.after) { let k = -1; lines.forEach((l, i) => { if (site.after.test(l)) k = i; }); if (k >= 0) lines = lines.slice(k + 1); } // keep only what comes after the site's "answer starts here" marker
+      return lines.filter(l => !(site.busy && site.busy.test(l)) && !(site.strip && site.strip.test(l))).join('\n');
     };
     let last = '', lastChange = Date.now(), result = ''; const t1 = Date.now();
     const maxMs = (+process.env.REPLY_TIMEOUT_SEC * 1000) || site.waitMs || 120000;

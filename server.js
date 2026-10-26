@@ -151,7 +151,7 @@ function toPrompt(messages, tools) {
   const sys = messages.filter(m => m.role === 'system').map(m => txt(m.content)).join('\n\n'), rest = messages.filter(m => m.role !== 'system');
   const head = (sys ? SYS_HEAD + sys + '\n\n' : '') + toolsNote(tools);
   if (rest.length === 1 && rest[0].role === 'user') return head ? head + '[User message]\n' + txt(rest[0].content) : txt(rest[0].content);
-  return head + (rest.length ? '[Conversation]\n' + rest.map(fmtMsg).join('\n') + '\nassistant:' : '');
+  return head + (rest.length ? '[Conversation so far — reply only to the last user message, as the assistant, without repeating this transcript]\n' + rest.map(fmtMsg).join('\n') + '\nassistant:' : '');
 }
 // what a chat that is already open on the site still needs: the system prompt/tools when they changed, plus everything after the last assistant reply (user messages AND tool results)
 const sysSent = {};

@@ -234,7 +234,7 @@ async function doAsk(p, prompt, dbg, conv, retry = true, info = {}) {
       if (rsel) {
         const els = page.locator(rsel), n = await els.count();
         if (n > n0) { src = 'selector ' + rsel; return (await els.nth(n - 1).innerText()).trim(); }
-        if (!hinted || n0 > 0) return '';
+        if (!hinted || (n0 > 0 && Date.now() - t1 < 15000)) return ''; // known reply container did not grow: after 15s fall back to reading the new page text instead of waiting forever
       }
       src = 'auto-detect (new page text)';
       raw = await page.evaluate(() => document.body.innerText);

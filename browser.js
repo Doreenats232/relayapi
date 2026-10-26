@@ -10,7 +10,10 @@ const HINTS = { 'chat.deepseek.com': '.ds-markdown' }; // known reply containers
 const BOILER = /^(AI-generated, for reference only|Copy|Regenerate|Share|Like|Dislike|Retry|Read aloud|Edit message)$/i;
 const tidy = lines => lines.filter((l, i) => l && !BOILER.test(l) && l !== lines[i - 1]);
 const cl = v => { v = String(v || '').trim(); return /^(blank|auto|none|optional|n\/a)\b|press enter|auto-detect/i.test(v) ? '' : v; }; // ignore placeholder text pasted into selector fields
-const DEFAULT_SEL = 'textarea, [contenteditable="true"], [role="textbox"], input[type="text"]';
+// any editable thing: sites now use contenteditable="plaintext-only", custom elements (rich-textarea), search/untyped inputs...
+const DEFAULT_SEL = 'textarea, [contenteditable]:not([contenteditable="false"]), [role="textbox"], rich-textarea, input[type="text"], input[type="search"], input:not([type])';
+// when the box is not found, say what editable-looking elements the page really has (shows up in the Test trace)
+const diag = page => page.evaluate(() => [...document.querySelectorAll('textarea,[contenteditable],[role=textbox],rich-textarea,input')].slice(0, 12).map(e => { const r = e.getBoundingClientRect(), s = getComputedStyle(e); return `${e.tagName.toLowerCase()}${e.getAttribute('contenteditable') != null ? '[ce=' + e.getAttribute('contenteditable') + ']' : ''}${e.getAttribute('role') ? '[role=' + e.getAttribute('role') + ']' : ''}${e.type ? '[type=' + e.type + ']' : ''} ${Math.round(r.width)}x${Math.round(r.height)} vis=${s.visibility} disp=${s.display}`; }).join(' | ') || 'none').catch(() => 'could not inspect');
 const inputSel = p => cl(p.inputSel) || DEFAULT_SEL;
 
 // ---- warm browser state: reuse sessions, keep chats open, pre-load a spare page ----
@@ -208,7 +211,7 @@ async function doAsk(p, prompt, dbg, conv, retry = true, info = {}) {
     if (ckey && (!warm || restored)) { convs.set(ckey, { page, pid: p.id, last: Date.now() }); }
     keep = !!ckey;
     const sel = inputSel(p), box = page.locator(sel).filter({ visible: true }).first(); // first VISIBLE match (the first one in the page can be a hidden element)
-    await box.waitFor({ state: 'visible', timeout: 25000 });
+    try { await box.waitFor({ state: 'visible', timeout: 25000 }); } catch (e) { e.message += '\nEditable elements on the page: ' + await diag(page); throw e; }
     if (!warm || restored) await settle(page, restored ? 8000 : 6000); // let the page finish loading its chat history BEFORE we measure it, or old messages look like a "new reply" (miniapps.ai returned its whole history)
     await shot(warm ? '1. Open chat' : '1. Page ready');
     selInfo = await box.evaluate(e => e.tagName.toLowerCase() + (e.id ? '#' + e.id : '') + (e.className && typeof e.className == 'string' ? '.' + e.className.trim().split(/\s+/).slice(0, 2).join('.') : '') + (e.placeholder ? ' placeholder="' + e.placeholder + '"' : ''));

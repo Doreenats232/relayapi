@@ -17,6 +17,7 @@ const diag = page => page.evaluate(() => [...document.querySelectorAll('textarea
 const inputSel = p => cl(p.inputSel) || DEFAULT_SEL;
 
 // ---- warm browser state: reuse sessions, keep chats open, pre-load a spare page ----
+const BOX_WAIT = (+process.env.INPUT_WAIT_SEC || 90) * 1000; // the free Render CPU can take 30s+ before heavy sites (Gemini) show their prompt box
 const MAX_PAGES = +process.env.MAX_PAGES || 3, CONV_TTL = 15 * 60e3, SPARE_TTL = 5 * 60e3, STABLE_MS = +process.env.STABLE_MS || 2000;
 const ctxs = new Map();   // providerId -> { ctx, sig }
 const convs = new Map();  // "user:provider:conversation" -> { page, pid, last }
@@ -147,7 +148,7 @@ function prewarm(p) { // load the next page in the background so the next new ch
   const entry = { at: Date.now() };
   entry.promise = (async () => {
     const page = await openPage(p, await getCtx(p, () => {}));
-    try { await page.locator(inputSel(p)).filter({ visible: true }).first().waitFor({ state: 'visible', timeout: 25000 }); await page.waitForTimeout(1200); } catch (e) { await page.close().catch(() => {}); throw e; }
+    try { await page.locator(inputSel(p)).filter({ visible: true }).first().waitFor({ state: 'visible', timeout: BOX_WAIT }); await page.waitForTimeout(1200); } catch (e) { await page.close().catch(() => {}); throw e; }
     return page;
   })();
   entry.promise.catch(() => { if (spares.get(p.id) === entry) spares.delete(p.id); });
@@ -211,7 +212,7 @@ async function doAsk(p, prompt, dbg, conv, retry = true, info = {}) {
     if (ckey && (!warm || restored)) { convs.set(ckey, { page, pid: p.id, last: Date.now() }); }
     keep = !!ckey;
     const sel = inputSel(p), box = page.locator(sel).filter({ visible: true }).first(); // first VISIBLE match (the first one in the page can be a hidden element)
-    try { await box.waitFor({ state: 'visible', timeout: 25000 }); } catch (e) { e.message += '\nEditable elements on the page: ' + await diag(page); throw e; }
+    try { await box.waitFor({ state: 'visible', timeout: BOX_WAIT }); } catch (e) { e.message += '\nEditable elements on the page: ' + await diag(page); throw e; }
     if (!warm || restored) await settle(page, restored ? 8000 : 6000); // let the page finish loading its chat history BEFORE we measure it, or old messages look like a "new reply" (miniapps.ai returned its whole history)
     await shot(warm ? '1. Open chat' : '1. Page ready');
     selInfo = await box.evaluate(e => e.tagName.toLowerCase() + (e.id ? '#' + e.id : '') + (e.className && typeof e.className == 'string' ? '.' + e.className.trim().split(/\s+/).slice(0, 2).join('.') : '') + (e.placeholder ? ' placeholder="' + e.placeholder + '"' : ''));

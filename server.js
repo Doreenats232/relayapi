@@ -54,10 +54,13 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // ---------- auth ----------
 app.post('/api/signup', (req, res) => {
-  const { email, password } = req.body || {};
+  const { email, password } = req.body || {}, un = String((req.body || {}).username || '').trim().toLowerCase();
   if (!email || !password || password.length < 6) return res.status(400).json({ error: 'Valid email and 6+ char password required' });
+  if (un && !/^[a-z0-9_.-]{3,20}$/.test(un)) return res.status(400).json({ error: 'Username must be 3-20 characters: letters, numbers, . _ -' });
   if (db.users.find(u => u.email === email.toLowerCase())) return res.status(409).json({ error: 'Email already registered' });
+  if (un && db.users.find(u => u.username === un)) return res.status(409).json({ error: 'That username is taken. Try another' });
   const salt = id(), u = { id: id(), email: email.toLowerCase(), salt, hash: hashPw(password, salt), created: Date.now() };
+  if (un) u.username = un;
   db.users.push(u); save(); res.json({ token: session(u.id), email: u.email });
 });
 const GCID = process.env.GOOGLE_CLIENT_ID || '130548633634-ph56vpk62f83a3djqlr0spik6crc6vf4.apps.googleusercontent.com'; // public client ID, safe to ship
@@ -77,9 +80,9 @@ app.post('/api/google', async (req, res) => {
 });
 app.post('/api/login', (req, res) => {
   const { email, password } = req.body || {};
-  const u = db.users.find(x => x.email === (email || '').toLowerCase());
+  const who = String(email || '').trim().toLowerCase(), u = db.users.find(x => x.email === who || (x.username && x.username === who));
   if (u && !u.salt) return res.status(401).json({ error: 'This account uses Google sign-in' });
-  if (!u || hashPw(password || '', u.salt) !== u.hash) return res.status(401).json({ error: 'Wrong email or password' });
+  if (!u || hashPw(password || '', u.salt) !== u.hash) return res.status(401).json({ error: 'Wrong email, username or password' });
   res.json({ token: session(u.id), email: u.email });
 });
 function session(uid) { const tk = crypto.randomBytes(24).toString('hex'); db.sessions[sha(tk)] = uid; save(); return tk; }

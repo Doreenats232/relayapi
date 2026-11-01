@@ -19,6 +19,7 @@ button,input,select,textarea{font:inherit;color:inherit}a{color:var(--a3);text-d
 .pill.ok{color:var(--ok);background:#34d3991a;border-color:#34d39933}.pill.er{color:var(--er);background:#fb71851a;border-color:#fb718533}.pill.wa{color:var(--mu);background:var(--s2);border-color:var(--bd2)}
 .ok{color:var(--ok)}.er{color:var(--er)}.mu{color:var(--mu)}
 /* auth */
+.dv{display:flex;align-items:center;gap:10px;margin:16px 0;color:var(--mu);font-size:12px}.dv:before,.dv:after{content:"";flex:1;height:1px;background:var(--bd)}
 .auth{display:grid;grid-template-columns:1.1fr 1fr;min-height:100vh}
 .brand{position:relative;overflow:hidden;padding:48px 56px;display:flex;flex-direction:column;justify-content:space-between;background:#090b14;border-right:1px solid var(--bd)}
 .orb{position:absolute;border-radius:50%;filter:blur(80px);opacity:.55;animation:fl 14s ease-in-out infinite}.o1{width:420px;height:420px;background:#6366f1;top:-120px;left:-100px}.o2{width:360px;height:360px;background:#22d3ee;bottom:-120px;right:-60px;animation-delay:-5s;opacity:.3}.o3{width:300px;height:300px;background:#8b5cf6;top:40%;left:40%;animation-delay:-9s;opacity:.35}
@@ -117,20 +118,21 @@ function initGoogle(){if(!window.google||!google.accounts){return setTimeout(ini
  const b=$('#gbtn');if(b)google.accounts.id.renderButton(b,{theme:'filled_black',size:'large',text:'continue_with',shape:'pill',width:340})}
 /* ---------- AUTH ---------- */
 function authView(){root.innerHTML=`<div class="auth"><div class="brand"><div class="orb o1"></div><div class="orb o2"></div><div class="orb o3"></div>${LOGO}
-<div><h1>Turn any AI website into <span>your own API</span></h1><p>Paste a chatbot URL. We find the text box, send your message, pull the answer back and serve it through a clean OpenAI-style endpoint.</p>
-<div class="feat"><div>${ic('globe')}Add any provider by URL</div><div>${ic('shield')}Scoped, revocable API keys</div><div>${ic('act')}Live debug traces &amp; screenshots</div></div>
+<div><h1>Turn any AI website into a <span>developer-ready API</span></h1><p>Connect a site once. Get keys your own apps can call with the OpenAI format.</p>
+<div class="feat"><div>${ic('globe')}One model per site: DeepSeek, Gemini and more</div><div>${ic('shield')}One key per app, revoke it any time</div><div>${ic('act')}Streaming replies and live debug traces</div></div>
 <div class="snip mono"><b>POST</b> /v1/chat/completions<br>{ <em>"model"</em>: "chatgpt",<br>&nbsp;&nbsp;<em>"messages"</em>: [{ "role": "user", "content": "Hi!" }] }</div></div>
 <div class="mu" style="font-size:12px">© RelayAPI</div></div>
 <div class="formside"><div class="box" id="ab"></div></div></div>`;authForm()}
-function authForm(){const l=mode=='login',g=!!(cfg&&cfg.googleClientId),em=!g||mailOpen;
-$('#ab').innerHTML=`<h2>${g?'Sign in to RelayAPI':l?'Welcome back':'Create your account'}</h2><p>${g?'Continue with Google — no password to remember.':l?'Log in to manage your providers and keys.':'Free to start. Build your first API in a minute.'}</p>
-${g?`<div id="gbtn" style="display:flex;justify-content:center;min-height:44px;margin-bottom:14px"></div><div style="text-align:center;font-size:12px;margin-bottom:16px"><a href="#" onclick="mailOpen=!mailOpen;authForm();return false">${mailOpen?'Hide email sign-in':'Use email &amp; password instead'}</a></div>`:''}
-${em?`<div class="seg"><button class="${l?'on':''}" onclick="mode='login';authForm()">Log in</button><button class="${l?'':'on'}" onclick="mode='signup';authForm()">Sign up</button></div>
-<div class="fld"><label>Email</label><input id="em" type="email" placeholder="you@example.com" autocomplete="email"></div>
+function authForm(){const l=mode=='login',g=!!(cfg&&cfg.googleClientId);
+$('#ab').innerHTML=`<h2>${l?'Welcome back':'Create your account'}</h2><p>${l?'Log in to manage your providers and keys.':'Free to start. Build your first API in a minute.'}</p>
+<div class="seg"><button class="${l?'on':''}" onclick="mode='login';authForm()">Log in</button><button class="${l?'':'on'}" onclick="mode='signup';authForm()">Create account</button></div>
+<div class="fld"><label>${l?'Email or username':'Email'}</label><input id="em" type="${l?'text':'email'}" placeholder="${l?'you@example.com or username':'you@example.com'}" autocomplete="${l?'username':'email'}" autocapitalize="none" onkeydown="event.key=='Enter'&&go()"></div>
+${l?'':`<div class="fld"><label>Username (optional)</label><input id="un" placeholder="e.g. miles" autocomplete="off" autocapitalize="none" onkeydown="event.key=='Enter'&&go()"></div>`}
 <div class="fld"><label>Password</label><input id="pw" type="password" placeholder="••••••••" autocomplete="${l?'current':'new'}-password" onkeydown="event.key=='Enter'&&go()"><button class="eye" type="button" onclick="const i=$('#pw');i.type=i.type=='password'?'text':'password'">${ic('eye',16)}</button></div>
-<div id="err" class="er" style="min-height:20px;font-size:13px;margin-bottom:8px"></div><button class="btn" style="width:100%" id="gb" onclick="go()">${l?'Log in':'Create account'}</button>`:''}`;
+<div id="err" class="er" style="min-height:20px;font-size:13px;margin-bottom:8px"></div><button class="btn" style="width:100%" id="gb" onclick="go()">${l?'Log in':'Create account'}</button>
+${g?`<div class="dv">or continue with</div><div id="gbtn" style="display:flex;justify-content:center;min-height:44px"></div>`:''}`;
 if(g)initGoogle()}
-async function go(){const b=$('#gb');b.disabled=true;try{const r=await api('/api/'+mode,'POST',{email:$('#em').value,password:$('#pw').value});tok=localStorage.tk=r.token;email=localStorage.em=r.email;location.hash='#/overview';render()}catch(e){$('#err').textContent=e.message;const x=$('#ab');x.classList.remove('shake');void x.offsetWidth;x.classList.add('shake');b.disabled=false}}
+async function go(){const b=$('#gb');b.disabled=true;try{const r=await api('/api/'+mode,'POST',{email:$('#em').value.trim(),username:($('#un')||{}).value||'',password:$('#pw').value});tok=localStorage.tk=r.token;email=localStorage.em=r.email;location.hash='#/overview';render()}catch(e){$('#err').textContent=e.message;const x=$('#ab');x.classList.remove('shake');void x.offsetWidth;x.classList.add('shake');b.disabled=false}}
 /* ---------- SHELL ---------- */
 const NAV=[['overview','home','Overview'],['providers','globe','Providers'],['keys','key','API Keys'],['playground','flask','Playground'],['logs','list','Logs'],['docs','book','Docs']];
 function shell(){const pg=page(),cur=NAV.find(n=>n[0]==pg)||NAV[0];

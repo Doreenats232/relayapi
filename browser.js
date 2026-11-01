@@ -18,7 +18,7 @@ const inputSel = p => cl(p.inputSel) || DEFAULT_SEL;
 
 // ---- warm browser state: reuse sessions, keep chats open, pre-load a spare page ----
 const BOX_WAIT = (+process.env.INPUT_WAIT_SEC || 90) * 1000; // the free Render CPU can take 30s+ before heavy sites (Gemini) show their prompt box
-const MAX_PAGES = +process.env.MAX_PAGES || 3, CONV_TTL = 15 * 60e3, SPARE_TTL = 5 * 60e3, STABLE_MS = +process.env.STABLE_MS || 2000;
+const MAX_PAGES = +process.env.MAX_PAGES || 3, CONV_TTL = 45 * 60e3, SPARE_TTL = 5 * 60e3, STABLE_MS = +process.env.STABLE_MS || 1200;
 const ctxs = new Map();   // providerId -> { ctx, sig }
 const convs = new Map();  // "user:provider:conversation" -> { page, pid, last }
 const spares = new Map(); // providerId -> { promise, at }
@@ -251,11 +251,12 @@ async function doAsk(p, prompt, dbg, conv, retry = true, info = {}) {
     while (Date.now() - t1 < maxMs) {
       await page.waitForTimeout(400);
       const cur = await read().catch(() => '');
-      if (cur !== last) { last = cur; lastChange = Date.now(); }
+      if (cur !== last) { last = cur; lastChange = Date.now(); if (info.onText && cur && !busyNow) { try { info.onText(cur); } catch {} } }
       else if (cur && !busyNow && Date.now() - lastChange >= STABLE_MS) { result = cur; break; }
     }
     if (!result && last) result = last;
     if (!result) throw new Error('Timed out waiting for reply (' + (busyNow ? 'the site still showed a busy/thinking state' : 'no new text appeared') + '). Page text at the end: ' + String(raw || '(none read)').replace(/\s+/g, ' ').slice(-600));
+    if (info.onText) { try { info.onText(result); } catch {} }
     step('Reply detected', true, `${result.length} chars via ${src}, took ${((Date.now() - t1) / 1000).toFixed(1)}s`);
     if (ckey) { // remember which chat this is so it survives restarts / idle closes
       let u = page.url(); if (!warm) for (let i = 0; i < 8 && !isChatUrl(p, u); i++) { await page.waitForTimeout(400); u = page.url(); }

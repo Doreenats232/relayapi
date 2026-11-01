@@ -180,12 +180,21 @@ async function run(userId, keyId, body, res, o = {}) {
   if (!prompt) return res.status(400).json({ error: { message: 'messages required' } });
   try {
     const cv = o.conv || convOf(body.conversation), ck = `${p.userId}:${p.id}:${cv}`, d = deltaOf(body, ck);
+    const streaming = body.stream === true && !(body.tools && body.tools.length);
+    const cid = 'chatcmpl-' + id(), mk = (delta, fin) => 'data: ' + JSON.stringify({ id: cid, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1000), model: p.name, choices: [{ index: 0, delta, finish_reason: fin || null }] }) + '\n\n';
+    let sent = '';
+    if (streaming) { // send the reply to the client while the site is still typing it
+      res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' }); res.flushHeaders && res.flushHeaders();
+      res.write(mk({ role: 'assistant', content: '' }));
+      info.onText = cum => { if (cum.length > sent.length && cum.startsWith(sent)) { res.write(mk({ content: cum.slice(sent.length) })); sent = cum; } };
+    }
     const text = await ask(prov(p), { full: prompt, last: d.text || lastUserOf(body.messages) }, false, cv, info); log(true); sysSent[ck] = d.h;
+    if (streaming) { if (text.length > sent.length && text.startsWith(sent)) res.write(mk({ content: text.slice(sent.length) })); res.write(mk({}, 'stop')); res.write('data: [DONE]\n\n'); return res.end(); }
     res.set('X-Relay-Mode', info.how || '');
     const tc = parseTools(text, body.tools);
     res.json({ id: 'chatcmpl-' + id(), object: 'chat.completion', created: Math.floor(Date.now() / 1000), model: p.name,
       choices: [{ index: 0, message: tc ? { role: 'assistant', content: null, tool_calls: tc } : { role: 'assistant', content: text }, finish_reason: tc ? 'tool_calls' : 'stop' }], usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 } });
-  } catch (e) { log(false, e.message); res.status(502).json({ error: { message: 'Provider failed: ' + e.message } }); }
+  } catch (e) { log(false, e.message); if (res.headersSent) { try { res.write('data: ' + JSON.stringify({ error: { message: 'Provider failed: ' + e.message } }) + '\n\n'); res.write('data: [DONE]\n\n'); } catch {} return res.end(); } res.status(502).json({ error: { message: 'Provider failed: ' + e.message } }); }
 }
 app.post('/v1/chat/completions', (req, res) => {
   const key = db.keys.find(k => k.hash === sha((req.headers.authorization || '').replace('Bearer ', '')) && !k.revoked);

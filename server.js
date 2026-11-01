@@ -1,7 +1,7 @@
 const express = require('express'), crypto = require('crypto'), fs = require('fs'), path = require('path');
 const B = require('./browser'); const ask = B.ask;
 const FILE = path.join(__dirname, 'data.json');
-let db = { users: [], sessions: {}, keys: [], providers: [], logs: [], chats: {} };
+let db = { users: [], sessions: {}, keys: [], providers: [], logs: [], chats: {}, resets: {} };
 // saved chat per (user:provider:conversation) so chats survive restarts; lives in the same Turso blob as everything else
 B.setStore({ get: k => (db.chats[k] || {}).url || null, set: (k, url) => { db.chats[k] = { url, ts: Date.now() }; save(); }, del: k => { if (db.chats[k]) { delete db.chats[k]; save(); } } });
 const TURSO_URL = process.env.TURSO_URL || process.env.TURSO_DATABASE_URL, TURSO_TOKEN = process.env.TURSO_TOKEN || process.env.TURSO_AUTH_TOKEN; // same names as the vault project work too
@@ -83,6 +83,53 @@ app.post('/api/login', (req, res) => {
   const who = String(email || '').trim().toLowerCase(), u = db.users.find(x => x.email === who || (x.username && x.username === who));
   if (u && !u.salt) return res.status(401).json({ error: 'This account uses Google sign-in' });
   if (!u || hashPw(password || '', u.salt) !== u.hash) return res.status(401).json({ error: 'Wrong email, username or password' });
+  res.json({ token: session(u.id), email: u.email });
+});
+
+// ---------- password reset (email goes out over an HTTPS mail API: Render's free tier blocks SMTP) ----------
+const mailReady = () => !!((process.env.BREVO_API_KEY && process.env.MAIL_FROM) || process.env.RESEND_API_KEY);
+async function sendMail(to, subject, html, text) {
+  const from = process.env.MAIL_FROM || '', name = process.env.MAIL_NAME || 'RelayAPI';
+  if (process.env.BREVO_API_KEY && from) {
+    const r = await fetch(process.env.BREVO_URL || 'https://api.brevo.com/v3/smtp/email', { method: 'POST', headers: { 'api-key': process.env.BREVO_API_KEY, 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify({ sender: { name, email: from }, to: [{ email: to }], subject, htmlContent: html, textContent: text }) });
+    if (!r.ok) throw new Error('Brevo ' + r.status + ' ' + (await r.text()).slice(0, 200));
+    return;
+  }
+  if (process.env.RESEND_API_KEY) {
+    const r = await fetch(process.env.RESEND_URL || 'https://api.resend.com/emails', { method: 'POST', headers: { Authorization: 'Bearer ' + process.env.RESEND_API_KEY, 'content-type': 'application/json' }, body: JSON.stringify({ from: name + ' <' + (from || 'onboarding@resend.dev') + '>', to: [to], subject, html, text }) });
+    if (!r.ok) throw new Error('Resend ' + r.status + ' ' + (await r.text()).slice(0, 200));
+    return;
+  }
+  throw new Error('Email is not configured');
+}
+const resetSeen = {};
+app.post('/api/forgot', (req, res) => {
+  const em = String((req.body || {}).email || '').trim().toLowerCase();
+  if (!em) return res.status(400).json({ error: 'Enter your email' });
+  if (!mailReady()) return res.status(503).json({ error: 'Password reset email is not set up on this server yet.' });
+  const now = Date.now();
+  if (resetSeen[em] && now - resetSeen[em] < 60000) return res.json({ ok: 1 }); // one email per minute per address
+  resetSeen[em] = now;
+  const u = db.users.find(x => x.email === em);
+  if (u) { // always answer ok so nobody can probe which emails have accounts
+    const tk = crypto.randomBytes(24).toString('hex');
+    for (const [h, r] of Object.entries(db.resets)) if (r.exp < now || r.uid === u.id) delete db.resets[h];
+    db.resets[sha(tk)] = { uid: u.id, exp: now + 30 * 60e3 }; save();
+    const link = (process.env.PUBLIC_URL || 'https://' + req.get('host')).replace(/\/$/, '') + '/#/reset/' + tk;
+    const html = '<div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;padding:24px;color:#1b1d2a"><h2 style="margin:0 0 12px">Reset your RelayAPI password</h2><p style="line-height:1.6">Click the button to choose a new password. The link works once and expires in 30 minutes.</p><p style="margin:24px 0"><a href="' + link + '" style="background:#6f63f2;color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;display:inline-block">Choose a new password</a></p><p style="font-size:13px;color:#666;line-height:1.6">If the button does not work, paste this link into your browser:<br>' + link + '</p><p style="font-size:13px;color:#666">Did not ask for this? Ignore this email and your password stays the same.</p></div>';
+    const text = 'Reset your RelayAPI password: ' + link + '\nThe link works once and expires in 30 minutes. If you did not ask for this, ignore this email.';
+    sendMail(em, 'Reset your RelayAPI password', html, text).catch(e => console.log('Reset mail failed:', e.message));
+  }
+  res.json({ ok: 1 });
+});
+app.post('/api/reset', (req, res) => {
+  const { token, password } = req.body || {};
+  if (!password || String(password).length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  const h = sha(String(token || '')), r = db.resets[h], u = r && r.exp > Date.now() && db.users.find(x => x.id === r.uid);
+  if (!u) { if (r) { delete db.resets[h]; save(); } return res.status(400).json({ error: 'This reset link is invalid or has expired. Request a new one.' }); }
+  const salt = id(); u.salt = salt; u.hash = hashPw(password, salt);
+  delete db.resets[h];
+  for (const k of Object.keys(db.sessions)) if (db.sessions[k] === u.id) delete db.sessions[k]; // sign out everywhere else
   res.json({ token: session(u.id), email: u.email });
 });
 function session(uid) { const tk = crypto.randomBytes(24).toString('hex'); db.sessions[sha(tk)] = uid; save(); return tk; }

@@ -111,7 +111,7 @@ window.onhashchange=()=>tok&&shell();
 let cfg=null,mailOpen=false,gInit=false;
 async function loadCfg(){if(cfg)return;cfg=await fetch('/api/config').then(r=>r.json()).catch(()=>({}));
  if(cfg.googleClientId)await new Promise(r=>{const s=document.createElement('script');s.src='https://accounts.google.com/gsi/client';s.async=true;s.onload=s.onerror=r;document.head.appendChild(s)})}
-function render(){loadCfg().then(()=>tok?shell():authView())}
+function render(){loadCfg().then(()=>{const m=/^#\/reset\/([a-f0-9]+)$/.exec(location.hash);if(m){resetTok=m[1];mode='reset';return authView()}tok?shell():authView()})}
 async function onGoogle(r){try{const j=await api('/api/google','POST',{credential:r.credential});tok=localStorage.tk=j.token;email=localStorage.em=j.email;localStorage.pic=j.picture||'';location.hash='#/overview';render()}catch(e){toast(e.message,'er')}}
 function initGoogle(){if(!window.google||!google.accounts){return setTimeout(initGoogle,300)}
  if(!gInit){google.accounts.id.initialize({client_id:cfg.googleClientId,callback:onGoogle});gInit=true}
@@ -123,15 +123,27 @@ function authView(){root.innerHTML=`<div class="auth"><div class="brand"><div cl
 <div class="snip mono"><b>POST</b> /v1/chat/completions<br>{ <em>"model"</em>: "chatgpt",<br>&nbsp;&nbsp;<em>"messages"</em>: [{ "role": "user", "content": "Hi!" }] }</div></div>
 <div class="mu" style="font-size:12px">© RelayAPI</div></div>
 <div class="formside"><div class="box" id="ab"></div></div></div>`;authForm()}
-function authForm(){const l=mode=='login',g=!!(cfg&&cfg.googleClientId);
+function authForm(){if(mode=='forgot')return forgotForm();if(mode=='reset')return resetForm();const l=mode=='login',g=!!(cfg&&cfg.googleClientId);
 $('#ab').innerHTML=`<h2>${l?'Welcome back':'Create your account'}</h2><p>${l?'Log in to manage your providers and keys.':'Free to start. Build your first API in a minute.'}</p>
 <div class="seg"><button class="${l?'on':''}" onclick="mode='login';authForm()">Log in</button><button class="${l?'':'on'}" onclick="mode='signup';authForm()">Create account</button></div>
 <div class="fld"><label>${l?'Email or username':'Email'}</label><input id="em" type="${l?'text':'email'}" placeholder="${l?'you@example.com or username':'you@example.com'}" autocomplete="${l?'username':'email'}" autocapitalize="none" onkeydown="event.key=='Enter'&&go()"></div>
 ${l?'':`<div class="fld"><label>Username (optional)</label><input id="un" placeholder="e.g. miles" autocomplete="off" autocapitalize="none" onkeydown="event.key=='Enter'&&go()"></div>`}
-<div class="fld"><label>Password</label><input id="pw" type="password" placeholder="••••••••" autocomplete="${l?'current':'new'}-password" onkeydown="event.key=='Enter'&&go()"><button class="eye" type="button" onclick="const i=$('#pw');i.type=i.type=='password'?'text':'password'">${ic('eye',16)}</button></div>
+<div class="fld"><label style="display:flex;justify-content:space-between;align-items:center">Password${l?`<a href="#" onclick="mode='forgot';authForm();return false">Forgot password?</a>`:''}</label><input id="pw" type="password" placeholder="••••••••" autocomplete="${l?'current':'new'}-password" onkeydown="event.key=='Enter'&&go()"><button class="eye" type="button" onclick="const i=$('#pw');i.type=i.type=='password'?'text':'password'">${ic('eye',16)}</button></div>
 <div id="err" class="er" style="min-height:20px;font-size:13px;margin-bottom:8px"></div><button class="btn" style="width:100%" id="gb" onclick="go()">${l?'Log in':'Create account'}</button>
 ${g?`<div class="dv">or continue with</div><div id="gbtn" style="display:flex;justify-content:center;min-height:44px"></div>`:''}`;
 if(g)initGoogle()}
+let resetTok='';
+function forgotForm(){$('#ab').innerHTML=`<h2>Reset your password</h2><p>Enter your account email and we'll send you a link to choose a new password.</p>
+<div class="fld"><label>Email</label><input id="em" type="email" placeholder="you@example.com" autocomplete="email" onkeydown="event.key=='Enter'&&sendReset()"></div>
+<div id="err" class="er" style="min-height:20px;font-size:13px;margin-bottom:8px"></div><button class="btn" style="width:100%" id="gb" onclick="sendReset()">Send reset link</button>
+<div style="text-align:center;font-size:12px;margin-top:16px"><a href="#" onclick="mode='login';authForm();return false">Back to log in</a></div>`}
+async function sendReset(){const b=$('#gb'),e=$('#em').value.trim();if(!e){$('#err').textContent='Enter your email';return}b.disabled=true;try{await api('/api/forgot','POST',{email:e});$('#ab').innerHTML=`<h2>Check your email</h2><p>If <b>${esc(e)}</b> has an account, a reset link is on its way. It expires in 30 minutes. Check spam if you don't see it.</p><button class="btn" style="width:100%;margin-top:16px" onclick="mode='login';authForm()">Back to log in</button>`}catch(x){$('#err').textContent=x.message;b.disabled=false}}
+function resetForm(){$('#ab').innerHTML=`<h2>Choose a new password</h2><p>Use at least 6 characters.</p>
+<div class="fld"><label>New password</label><input id="pw" type="password" placeholder="••••••••" autocomplete="new-password"><button class="eye" type="button" onclick="const i=$('#pw');i.type=i.type=='password'?'text':'password'">${ic('eye',16)}</button></div>
+<div class="fld"><label>Confirm password</label><input id="pw2" type="password" placeholder="••••••••" autocomplete="new-password" onkeydown="event.key=='Enter'&&doReset()"></div>
+<div id="err" class="er" style="min-height:20px;font-size:13px;margin-bottom:8px"></div><button class="btn" style="width:100%" id="gb" onclick="doReset()">Save password</button>
+<div style="text-align:center;font-size:12px;margin-top:16px"><a href="#" onclick="history.replaceState(null,'',location.pathname);mode='login';authForm();return false">Back to log in</a></div>`}
+async function doReset(){const b=$('#gb'),p=$('#pw').value;if(p.length<6){$('#err').textContent='Use at least 6 characters';return}if(p!==$('#pw2').value){$('#err').textContent="Passwords don't match";return}b.disabled=true;try{const r=await api('/api/reset','POST',{token:resetTok,password:p});tok=localStorage.tk=r.token;email=localStorage.em=r.email;history.replaceState(null,'',location.pathname);location.hash='#/overview';mode='login';render()}catch(e){$('#err').textContent=e.message;b.disabled=false}}
 async function go(){const b=$('#gb');b.disabled=true;try{const r=await api('/api/'+mode,'POST',{email:$('#em').value.trim(),username:($('#un')||{}).value||'',password:$('#pw').value});tok=localStorage.tk=r.token;email=localStorage.em=r.email;location.hash='#/overview';render()}catch(e){$('#err').textContent=e.message;const x=$('#ab');x.classList.remove('shake');void x.offsetWidth;x.classList.add('shake');b.disabled=false}}
 /* ---------- SHELL ---------- */
 const NAV=[['overview','home','Overview'],['providers','globe','Providers'],['keys','key','API Keys'],['playground','flask','Playground'],['logs','list','Logs'],['docs','book','Docs']];

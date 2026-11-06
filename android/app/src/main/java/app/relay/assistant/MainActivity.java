@@ -1,0 +1,325 @@
+package app.relay.assistant;
+
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
+import android.graphics.Color;
+import android.net.Uri;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.provider.AlarmClock;
+import android.provider.Settings;
+import android.text.InputType;
+import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
+import android.webkit.JavascriptInterface;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.FrameLayout;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+
+import org.json.JSONObject;
+
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.List;
+import java.util.Locale;
+
+public class MainActivity extends Activity {
+    private static final int INK = Color.parseColor("#0C0D14");
+    private WebView web;
+    private LinearLayout splash;
+    private TextView splashText;
+    private Button retry, change;
+    private SharedPreferences sp;
+    private String base = "";
+    private String pendingCode = null;
+    private int bootId = 0;
+    private final Handler ui = new Handler(Looper.getMainLooper());
+
+    @Override
+    protected void onCreate(Bundle b) {
+        super.onCreate(b);
+        sp = getSharedPreferences("relay", MODE_PRIVATE);
+        base = sp.getString("server", "");
+
+        FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(INK);
+        root.setFitsSystemWindows(true);
+
+        web = new WebView(this);
+        web.setBackgroundColor(INK);
+        WebSettings s = web.getSettings();
+        s.setJavaScriptEnabled(true);
+        s.setDomStorageEnabled(true);
+        s.setMediaPlaybackRequiresUserGesture(true);
+        s.setAllowFileAccess(false);
+        s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        s.setUserAgentString(s.getUserAgentString() + " RelayApp/1.0");
+        web.addJavascriptInterface(new Bridge(), "Android");
+        web.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
+                Uri u = r.getUrl();
+                String host = Uri.parse(base).getHost();
+                if (host != null && host.equals(u.getHost())) return false;
+                openExternal(u.toString());
+                return true;
+            }
+
+            @Override
+            public void onReceivedError(WebView v, WebResourceRequest r, WebResourceError e) {
+                if (r.isForMainFrame()) showProblem("Can't reach your relay. Check your internet connection.");
+            }
+        });
+        root.addView(web, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        splash = new LinearLayout(this);
+        splash.setOrientation(LinearLayout.VERTICAL);
+        splash.setGravity(Gravity.CENTER);
+        splash.setBackgroundColor(INK);
+        splash.setPadding(60, 60, 60, 60);
+        splashText = new TextView(this);
+        splashText.setTextColor(Color.parseColor("#ECEEFB"));
+        splashText.setTextSize(17);
+        splashText.setGravity(Gravity.CENTER);
+        splash.addView(splashText);
+        retry = new Button(this);
+        retry.setText("Try again");
+        retry.setOnClickListener(v -> boot());
+        change = new Button(this);
+        change.setText("Change relay address");
+        change.setOnClickListener(v -> askServer());
+        splash.addView(retry);
+        splash.addView(change);
+        root.addView(splash, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        setContentView(root);
+
+        handleIntent(getIntent());
+        if (base.isEmpty()) askServer(); else boot();
+    }
+
+    @Override
+    protected void onNewIntent(Intent i) {
+        super.onNewIntent(i);
+        setIntent(i);
+        handleIntent(i);
+        if (pendingCode != null && !base.isEmpty()) boot();
+    }
+
+    private void handleIntent(Intent i) {
+        Uri d = i == null ? null : i.getData();
+        if (d != null && "relayapp".equals(d.getScheme())) pendingCode = d.getQueryParameter("code");
+    }
+
+    private void showSplash(String msg, boolean problem) {
+        splashText.setText(msg);
+        retry.setVisibility(problem ? View.VISIBLE : View.GONE);
+        change.setVisibility(problem ? View.VISIBLE : View.GONE);
+        splash.setVisibility(View.VISIBLE);
+    }
+
+    private void showProblem(String msg) { showSplash(msg, true); }
+
+    private void askServer() {
+        final EditText in = new EditText(this);
+        in.setHint("https://your-relay.onrender.com");
+        in.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        in.setText(base);
+        new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+                .setTitle("Your relay address")
+                .setMessage("Paste the web address of your RelayAPI site.")
+                .setView(in)
+                .setCancelable(!base.isEmpty())
+                .setPositiveButton("Save", (d, w) -> {
+                    String v = in.getText().toString().trim();
+                    if (v.isEmpty()) { askServer(); return; }
+                    if (!v.startsWith("http")) v = "https://" + v;
+                    while (v.endsWith("/")) v = v.substring(0, v.length() - 1);
+                    base = v;
+                    sp.edit().putString("server", base).apply();
+                    boot();
+                })
+                .show();
+    }
+
+    /** Render's free tier sleeps: wait for the relay to wake up, then load the app page. */
+    private void boot() {
+        final int id = ++bootId;
+        showSplash("Waking your relay…", false);
+        final String target = base;
+        new Thread(() -> {
+            long end = System.currentTimeMillis() + 120000;
+            boolean ok = false;
+            while (System.currentTimeMillis() < end && id == bootId) {
+                try {
+                    HttpURLConnection c = (HttpURLConnection) new URL(target + "/healthz").openConnection();
+                    c.setConnectTimeout(8000);
+                    c.setReadTimeout(8000);
+                    int code = c.getResponseCode();
+                    c.disconnect();
+                    if (code == 200) { ok = true; break; }
+                } catch (Exception ignored) { }
+                try { Thread.sleep(3000); } catch (InterruptedException e) { return; }
+            }
+            final boolean up = ok;
+            ui.post(() -> {
+                if (id != bootId) return;
+                if (up) {
+                    splash.setVisibility(View.GONE);
+                    String url = target + "/app/";
+                    if (pendingCode != null) { url += "?code=" + Uri.encode(pendingCode); pendingCode = null; }
+                    web.loadUrl(url);
+                } else showProblem("Your relay did not wake up. Check the address and your connection.");
+            });
+        }).start();
+    }
+
+    private void openExternal(String url) {
+        try {
+            Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+        } catch (Exception ignored) { }
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (web != null && web.canGoBack()) web.goBack(); else super.onBackPressed();
+    }
+
+    /** Functions the web app can call. */
+    private class Bridge {
+        @JavascriptInterface public String server() { return base; }
+
+        @JavascriptInterface public void setServer() { ui.post(MainActivity.this::askServer); }
+
+        @JavascriptInterface public void googleSignIn() { openExternal(base + "/app/?handoff=1"); }
+
+        @JavascriptInterface public void openExternalUrl(String url) { openExternal(url); }
+
+        @JavascriptInterface public void copy(String text) {
+            ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            cm.setPrimaryClip(ClipData.newPlainText("relay", text));
+        }
+
+        @JavascriptInterface public String phone(String json) {
+            try {
+                return doAction(new JSONObject(json));
+            } catch (Exception e) {
+                return "Failed: " + e.getMessage();
+            }
+        }
+    }
+
+    private String doAction(JSONObject a) throws Exception {
+        String act = a.optString("action");
+        Intent i;
+        switch (act) {
+            case "open_app": {
+                String want = a.optString("name").toLowerCase(Locale.ROOT).trim();
+                if (want.isEmpty()) return "No app name given";
+                PackageManager pm = getPackageManager();
+                Intent main = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
+                List<ResolveInfo> apps = pm.queryIntentActivities(main, 0);
+                ResolveInfo best = null;
+                for (ResolveInfo r : apps) {
+                    String l = String.valueOf(r.loadLabel(pm)).toLowerCase(Locale.ROOT);
+                    if (l.equals(want)) { best = r; break; }
+                    if (best == null && (l.contains(want) || want.contains(l))) best = r;
+                }
+                if (best == null) return "Could not find an app called " + a.optString("name");
+                i = pm.getLaunchIntentForPackage(best.activityInfo.packageName);
+                if (i == null) return "Could not open that app";
+                launch(i);
+                return "Opened " + best.loadLabel(pm);
+            }
+            case "open_url": {
+                String u = a.optString("url");
+                if (!(u.startsWith("http://") || u.startsWith("https://"))) u = "https://" + u;
+                launch(new Intent(Intent.ACTION_VIEW, Uri.parse(u)));
+                return "Opened link";
+            }
+            case "dial":
+                launch(new Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + Uri.encode(a.optString("number")))));
+                return "Dialer opened";
+            case "sms":
+                i = new Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:" + Uri.encode(a.optString("number"))));
+                i.putExtra("sms_body", a.optString("body"));
+                launch(i);
+                return "Message ready to send";
+            case "email":
+                i = new Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:" + a.optString("to")));
+                i.putExtra(Intent.EXTRA_SUBJECT, a.optString("subject"));
+                i.putExtra(Intent.EXTRA_TEXT, a.optString("body"));
+                launch(i);
+                return "Email draft opened";
+            case "search":
+                launch(new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/search?q=" + Uri.encode(a.optString("query")))));
+                return "Searching";
+            case "map":
+                launch(new Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=" + Uri.encode(a.optString("query")))));
+                return "Map opened";
+            case "alarm":
+                i = new Intent(AlarmClock.ACTION_SET_ALARM);
+                i.putExtra(AlarmClock.EXTRA_HOUR, a.optInt("hour"));
+                i.putExtra(AlarmClock.EXTRA_MINUTES, a.optInt("minute"));
+                i.putExtra(AlarmClock.EXTRA_MESSAGE, a.optString("label", "Relay"));
+                i.putExtra(AlarmClock.EXTRA_SKIP_UI, true);
+                launch(i);
+                return "Alarm set";
+            case "timer":
+                i = new Intent(AlarmClock.ACTION_SET_TIMER);
+                i.putExtra(AlarmClock.EXTRA_LENGTH, a.optInt("seconds", 60));
+                i.putExtra(AlarmClock.EXTRA_MESSAGE, a.optString("label", "Relay"));
+                i.putExtra(AlarmClock.EXTRA_SKIP_UI, true);
+                launch(i);
+                return "Timer started";
+            case "settings": {
+                String p = a.optString("page", "main").toLowerCase(Locale.ROOT);
+                String sa;
+                switch (p) {
+                    case "wifi": sa = Settings.ACTION_WIFI_SETTINGS; break;
+                    case "bluetooth": sa = Settings.ACTION_BLUETOOTH_SETTINGS; break;
+                    case "display": sa = Settings.ACTION_DISPLAY_SETTINGS; break;
+                    case "sound": sa = Settings.ACTION_SOUND_SETTINGS; break;
+                    case "battery": sa = Intent.ACTION_POWER_USAGE_SUMMARY; break;
+                    case "apps": sa = Settings.ACTION_APPLICATION_SETTINGS; break;
+                    case "location": sa = Settings.ACTION_LOCATION_SOURCE_SETTINGS; break;
+                    default: sa = Settings.ACTION_SETTINGS;
+                }
+                launch(new Intent(sa));
+                return "Settings opened";
+            }
+            case "share":
+                i = new Intent(Intent.ACTION_SEND);
+                i.setType("text/plain");
+                i.putExtra(Intent.EXTRA_TEXT, a.optString("text"));
+                launch(Intent.createChooser(i, "Share"));
+                return "Share sheet opened";
+            default:
+                return "Unknown action: " + act;
+        }
+    }
+
+    private void launch(final Intent i) {
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        ui.post(() -> {
+            try { startActivity(i); } catch (Exception ignored) { }
+        });
+    }
+}

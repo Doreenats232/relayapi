@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0c0d14">
+<title>Relay</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#0c0d14;--s1:#14162299;--s2:#171a2b;--s3:#1e2238;--ln:#262a43;--tx:#eceefb;--mu:#8a90b2;--a1:#8b7bff;--a2:#36d6ff;--ok:#4ade80;--bad:#ff6b81;--r:18px}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--ink);color:var(--tx);font:15px/1.5 Outfit,system-ui,-apple-system,Roboto,sans-serif;overscroll-behavior:none}
+body{background:radial-gradient(900px 420px at 85% -10%,#2a2170aa,transparent 60%),radial-gradient(700px 380px at -10% 110%,#0b4f6a77,transparent 60%),var(--ink)}
+#app{height:100dvh;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top)}
+button,input,textarea,select{font:inherit;color:inherit}
+button{cursor:pointer;border:0;background:none}
+.orb{width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,var(--a1),var(--a2));display:grid;place-items:center;box-shadow:0 0 28px #8b7bff66;flex:none}
+.orb svg{width:60%;height:60%}
+.top{display:flex;align-items:center;gap:12px;padding:14px 18px}
+.top h1{font-size:22px;margin:0;font-weight:700;letter-spacing:-.01em}
+.top .sp{flex:1}
+.ib{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:var(--s2);border:1px solid var(--ln)}
+.ib svg{width:20px;height:20px;stroke:var(--tx);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.scroll{flex:1;overflow-y:auto;padding:4px 18px 24px}
+.card{background:var(--s2);border:1px solid var(--ln);border-radius:var(--r);padding:14px 16px}
+.prov{display:flex;align-items:center;gap:14px;width:100%;text-align:left;margin-bottom:10px}
+.prov:active{background:var(--s3)}
+.av{width:46px;height:46px;border-radius:14px;background:var(--s3);display:grid;place-items:center;font-weight:700;font-size:18px;color:var(--a2);flex:none}
+.prov .m{flex:1;min-width:0}
+.prov b{display:block;font-weight:600;font-size:16px}
+.prov small{color:var(--mu);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--mu);flex:none}
+.dot.on{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+.btn{background:linear-gradient(135deg,var(--a1),#5b8cff);color:#fff;border-radius:14px;padding:13px 18px;font-weight:600;width:100%}
+.btn.alt{background:var(--s3);color:var(--tx);border:1px solid var(--ln)}
+.btn.sm{width:auto;padding:9px 14px;border-radius:12px;font-size:14px}
+.btn:disabled{opacity:.5}
+.fld{display:block;margin-bottom:12px}
+.fld span{display:block;color:var(--mu);font-size:13px;margin-bottom:5px}
+.in{width:100%;background:var(--ink);border:1px solid var(--ln);border-radius:14px;padding:12px 14px;outline:0}
+.in:focus{border-color:var(--a1)}
+textarea.in{resize:none;min-height:140px;line-height:1.5}
+.err{color:var(--bad);font-size:14px;min-height:20px;margin:4px 0 8px}
+.mu{color:var(--mu)}
+.auth{margin:auto;width:100%;max-width:420px;padding:24px 22px 32px}
+.auth .orb{width:68px;height:68px;margin-bottom:18px}
+.auth h1{font-size:30px;line-height:1.15;margin:0 0 6px;letter-spacing:-.02em}
+.auth p{margin:0 0 22px;color:var(--mu)}
+.or{display:flex;align-items:center;gap:10px;color:var(--mu);font-size:13px;margin:16px 0}
+.or:before,.or:after{content:"";flex:1;height:1px;background:var(--ln)}
+.link{color:var(--a2);font-size:14px;text-align:center;display:block;margin-top:14px;width:100%}
+/* chat */
+.chat{flex:1;overflow-y:auto;padding:6px 14px 10px;display:flex;flex-direction:column;gap:10px}
+.msg{max-width:88%;padding:11px 14px;border-radius:20px;word-wrap:break-word;overflow-wrap:anywhere;white-space:pre-wrap}
+.msg.user{align-self:flex-end;background:linear-gradient(135deg,#6f63f2,#4f7cff);border-bottom-right-radius:6px}
+.msg.assistant{align-self:flex-start;background:var(--s2);border:1px solid var(--ln);border-bottom-left-radius:6px}
+.msg.err{border-color:var(--bad);color:#ffd0d7}
+.msg pre{background:var(--ink);border:1px solid var(--ln);border-radius:12px;padding:10px 12px;overflow-x:auto;margin:8px 0;white-space:pre;font-size:13px}
+.msg code{font-family:ui-monospace,Menlo,monospace;font-size:.9em;background:var(--ink);padding:1px 5px;border-radius:6px}
+.msg pre code{background:none;padding:0}
+.typing{display:inline-flex;gap:4px}.typing i{width:7px;height:7px;border-radius:50%;background:var(--mu);animation:b 1s infinite}.typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
+@keyframes b{0%,60%,100%{opacity:.3}30%{opacity:1}}
+@media (prefers-reduced-motion:reduce){.typing i{animation:none}}
+.act{align-self:flex-start;max-width:88%;background:var(--s3);border:1px solid var(--a1);border-radius:16px;padding:10px 12px;display:flex;align-items:center;gap:10px;font-size:14px}
+.act span{flex:1}
+.act.done{border-color:var(--ln);color:var(--mu)}
+.mact{display:flex;gap:8px;margin-top:8px}
+.composer{display:flex;gap:10px;align-items:flex-end;padding:10px 14px calc(12px + env(safe-area-inset-bottom));background:linear-gradient(transparent,var(--ink) 30%)}
+.composer textarea{flex:1;max-height:140px;min-height:46px;border-radius:23px;padding:12px 16px;background:var(--s2);border:1px solid var(--ln);outline:0;resize:none;line-height:1.4}
+.composer textarea:focus{border-color:var(--a1)}
+.send{width:46px;height:46px;border-radius:50%;background:linear-gradient(135deg,var(--a1),var(--a2));display:grid;place-items:center;flex:none}
+.send svg{width:22px;height:22px;stroke:#0c0d14;fill:none;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.send:disabled{opacity:.45}
+.empty{margin:auto;text-align:center;color:var(--mu);padding:30px}
+.empty .orb{margin:0 auto 14px;width:60px;height:60px}
+/* sheet */
+.veil{position:fixed;inset:0;background:#000a;display:flex;align-items:flex-end;z-index:20}
+.sheet{width:100%;max-height:92dvh;overflow-y:auto;background:var(--s2);border-top:1px solid var(--ln);border-radius:26px 26px 0 0;padding:20px 18px calc(22px + env(safe-area-inset-bottom))}
+.sheet h2{margin:0 0 14px;font-size:20px}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.chip{border:1px solid var(--ln);background:var(--s3);border-radius:99px;padding:7px 14px;font-size:14px;color:var(--mu)}
+.chip.on{border-color:var(--a1);color:var(--tx)}
+.row{display:flex;align-items:center;gap:12px;padding:14px 0;border-bottom:1px solid var(--ln);width:100%;text-align:left}
+.row:last-child{border-bottom:0}
+.row .m{flex:1}.row b{display:block;font-weight:600}.row small{color:var(--mu)}
+.sw{width:50px;height:30px;border-radius:99px;background:var(--s3);border:1px solid var(--ln);position:relative;flex:none;transition:.15s}
+.sw:after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:var(--mu);transition:.15s}
+.sw.on{background:var(--a1);border-color:var(--a1)}.sw.on:after{left:23px;background:#fff}
+.sec{color:var(--mu);font-size:13px;margin:22px 0 6px}
+.toast{position:fixed;left:50%;bottom:calc(90px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--s3);border:1px solid var(--ln);padding:10px 16px;border-radius:99px;z-index:30;font-size:14px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+'use strict';
+const $=s=>document.querySelector(s), A=window.Android||null, FENCE='`'.repeat(3);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ICON={
+  back:'<svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>',
+  plus:'<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+  gear:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>',
+  send:'<svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
+  new:'<svg viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>',
+  spark:'<svg viewBox="0 0 24 24"><path d="M12 2c.6 5.4 4.6 9.4 10 10-5.4.6-9.4 4.6-10 10-.6-5.4-4.6-9.4-10-10 5.4-.6 9.4-4.6 10-10z" fill="#fff" stroke="none"/></svg>'
+};
+const orb=()=>`<div class="orb">${ICON.spark}</div>`;
+const PRESETS=[['Gemini','https://gemini.google.com/app'],['ChatGPT','https://chatgpt.com'],['DeepSeek','https://chat.deepseek.com'],['Miniapps','https://miniapps.ai/create'],['Perplexity','https://www.perplexity.ai'],['Copilot','https://copilot.microsoft.com'],['GoogleAI','https://www.google.com/ai']];
+
+let tok=localStorage.tk||'', email=localStorage.em||'', providers=[], busy=false;
+const phoneOn=()=>!!A&&localStorage.pc!=='0', askFirst=()=>localStorage.pcask!=='0';
+
+function toast(t){const d=document.createElement('div');d.className='toast';d.textContent=t;document.body.appendChild(d);setTimeout(()=>d.remove(),2400)}
+async function api(path,method,body){
+  const r=await fetch(path,{method:method||'GET',headers:{'Content-Type':'application/json',Authorization:'Bearer '+tok},body:body?JSON.stringify(body):undefined});
+  const j=await r.json().catch(()=>({}));
+  if(r.status===401&&tok&&!path.startsWith('/api/login')){logout(true);throw new Error('Signed out. Please sign in again.')}
+  if(!r.ok)throw new Error((j.error&&(j.error.message||j.error))||'Something went wrong ('+r.status+')');
+  return j;
+}
+function setSession(j){tok=localStorage.tk=j.token;email=localStorage.em=j.email;if(j.picture)localStorage.pic=j.picture;location.hash='#/'}
+function logout(silent){['tk','em','pic'].forEach(k=>localStorage.removeItem(k));tok='';email='';if(!silent)toast('Signed out');location.hash='#/';route()}
+
+/* ---------- routing ---------- */
+window.addEventListener('hashchange',route);
+function route(){
+  if(!tok)return authView();
+  const h=location.hash.replace(/^#\/?/,'');
+  if(h.startsWith('chat/'))return chatView(decodeURIComponent(h.slice(5)));
+  if(h==='settings')return settingsView();
+  if(h==='rules')return rulesView();
+  return listView();
+}
+
+/* ---------- sign in ---------- */
+let authMode='login';
+function authView(msg){
+  $('#app').innerHTML=`<div class="scroll" style="display:flex"><div class="auth">
+  ${orb()}<h1>${authMode==='login'?'Welcome back':'Create your account'}</h1>
+  <p>One place to talk to every AI you connect to your relay.</p>
+  <label class="fld"><span>${authMode==='login'?'Email or username':'Email'}</span><input id="em" class="in" autocomplete="username" autocapitalize="none" inputmode="email"></label>
+  ${authMode==='signup'?'<label class="fld"><span>Username (optional)</span><input id="un" class="in" autocapitalize="none"></label>':''}
+  <label class="fld"><span>Password</span><input id="pw" class="in" type="password" autocomplete="current-password"></label>
+  <div class="err" id="err">${esc(msg||'')}</div>
+  <button class="btn" id="go">${authMode==='login'?'Sign in':'Create account'}</button>
+  <div class="or">or</div>
+  <div id="gwrap"></div>
+  <button class="link" id="sw">${authMode==='login'?'New here? Create an account':'Have an account? Sign in'}</button>
+  ${authMode==='login'?'<button class="link" id="fg" style="color:var(--mu)">Forgot password?</button>':''}
+  </div></div>`;
+  $('#go').onclick=doAuth;$('#pw').onkeydown=e=>{if(e.key==='Enter')doAuth()};
+  $('#sw').onclick=()=>{authMode=authMode==='login'?'signup':'login';authView()};
+  if($('#fg'))$('#fg').onclick=forgot;
+  googleButton($('#gwrap'));
+}
+async function doAuth(){
+  const b=$('#go');b.disabled=true;$('#err').textContent='';
+  try{
+    const body={email:$('#em').value.trim(),password:$('#pw').value};
+    if(authMode==='signup')body.username=($('#un')||{}).value||'';
+    setSession(await api('/api/'+authMode,'POST',body));route();
+  }catch(e){$('#err').textContent=e.message;b.disabled=false}
+}
+async function forgot(){
+  const em=$('#em').value.trim();if(!em){$('#err').textContent='Type your email above first.';return}
+  try{await api('/api/forgot','POST',{email:em});toast('If that email has an account, a reset link is on its way')}catch(e){$('#err').textContent=e.message}
+}
+let gCfg=null;
+async function googleButton(box){
+  if(A){box.innerHTML='<button class="btn alt" id="gb">Continue with Google</button>';$('#gb').onclick=()=>A.googleSignIn();return}
+  try{gCfg=gCfg||await (await fetch('/api/config')).json()}catch{return}
+  const init=()=>{
+    if(!window.google||!google.accounts)return setTimeout(init,300);
+    google.accounts.id.initialize({client_id:gCfg.googleClientId,callback:async r=>{
+      try{const j=await api('/api/google','POST',{credential:r.credential});
+        if(new URLSearchParams(location.search).has('handoff')){const h=await fetch('/api/handoff',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+j.token}}).then(x=>x.json());handoffDone(h.code);return}
+        setSession(j);route()}catch(e){toast(e.message)}}});
+    google.accounts.id.renderButton(box,{theme:'filled_black',size:'large',text:'continue_with',shape:'pill',width:300});
+  };
+  if(!document.getElementById('gis')){const s=document.createElement('script');s.id='gis';s.src='https://accounts.google.com/gsi/client';s.async=true;document.head.appendChild(s)}
+  init();
+}
+/* browser page opened by the Android app for Google sign-in */
+function handoffView(){
+  $('#app').innerHTML=`<div class="scroll" style="display:flex"><div class="auth">${orb()}<h1>Sign in with Google</h1><p>You'll be sent back to the Relay app when you're done.</p><div id="gwrap"></div><div class="err" id="err"></div></div></div>`;
+  googleButton($('#gwrap'));
+}
+function handoffDone(code){
+  const url='relayapp://auth?code='+encodeURIComponent(code);
+  $('#app').innerHTML=`<div class="scroll" style="display:flex"><div class="auth">${orb()}<h1>You're signed in</h1><p>Return to the Relay app to continue.</p><a class="btn" style="display:block;text-align:center;text-decoration:none" href="${url}">Open Relay</a></div></div>`;
+  location.href=url;
+}
+
+/* ---------- providers ---------- */
+async function listView(){
+  $('#app').innerHTML=`<div class="top">${orb()}<h1>Relay</h1><div class="sp"></div><button class="ib" id="add" aria-label="Add AI">${ICON.plus}</button><button class="ib" id="st" aria-label="Settings">${ICON.gear}</button></div><div class="scroll" id="list"><div class="mu" style="padding:20px 4px">Loading…</div></div>`;
+  $('#add').onclick=addSheet;$('#st').onclick=()=>location.hash='#/settings';
+  try{providers=await api('/api/providers')}catch(e){$('#list').innerHTML=`<div class="empty">${esc(e.message)}</div>`;return}
+  if(!providers.length){$('#list').innerHTML=`<div class="empty">${orb()}<b style="color:var(--tx);font-size:18px">No AIs yet</b><p>Add ChatGPT, Gemini, DeepSeek or any chat website, then talk to it from here.</p><button class="btn" id="a2">Add your first AI</button></div>`;$('#a2').onclick=addSheet;return}
+  $('#list').innerHTML=providers.map(p=>{let h='';try{h=new URL(p.url).host}catch{}
+    const n=lastText(p.name);
+    return `<button class="card prov" data-n="${esc(p.name)}"><div class="av">${esc(p.name[0].toUpperCase())}</div><div class="m"><b>${esc(p.name)}</b><small>${esc(n||h)}</small></div><span class="dot ${p.hasSession?'on':''}" title="${p.hasSession?'Signed in':'Not signed in'}"></span></button>`}).join('')
+   +`<p class="mu" style="font-size:13px;text-align:center;margin-top:18px">Green dot: signed in to that site. Open Settings → Sign in to a site if a dot is grey.</p>`;
+  document.querySelectorAll('.prov').forEach(b=>b.onclick=()=>location.hash='#/chat/'+encodeURIComponent(b.dataset.n));
+}
+const lastText=n=>{try{const m=JSON.parse(localStorage['m:'+n]||'[]').filter(x=>!x.err).pop();return m?(m.role==='user'?'You: ':'')+m.content.replace(/\s+/g,' ').slice(0,70):''}catch{return''}};
+function sheet(html){const v=document.createElement('div');v.className='veil';v.innerHTML=`<div class="sheet">${html}</div>`;v.onclick=e=>{if(e.target===v)v.remove()};document.body.appendChild(v);return v}
+function addSheet(){
+  const v=sheet(`<h2>Add an AI</h2><div class="chips">${PRESETS.map((p,i)=>`<button class="chip" data-i="${i}">${p[0]}</button>`).join('')}</div>
+  <label class="fld"><span>Name (used as a label)</span><input id="pn" class="in" autocapitalize="none"></label>
+  <label class="fld"><span>Chat website address</span><input id="pu" class="in" inputmode="url" autocapitalize="none" placeholder="https://"></label>
+  <div class="err" id="perr"></div><button class="btn" id="psave">Add</button>
+  <p class="mu" style="font-size:13px">After adding, sign in to that site once from Settings → Sign in to a site.</p>`);
+  v.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{const p=PRESETS[c.dataset.i];v.querySelector('#pn').value=p[0].toLowerCase();v.querySelector('#pu').value=p[1];v.querySelectorAll('.chip').forEach(x=>x.classList.toggle('on',x===c))});
+  v.querySelector('#psave').onclick=async()=>{
+    const b=v.querySelector('#psave');b.disabled=true;
+    try{await api('/api/providers','POST',{name:v.querySelector('#pn').value.trim(),url:v.querySelector('#pu').value.trim()});v.remove();toast('Added');listView()}
+    catch(e){v.querySelector('#perr').textContent=e.message;b.disabled=false}
+  };
+}
+
+/* ---------- chat ---------- */
+let cur=null;
+const load=n=>{try{return JSON.parse(localStorage['m:'+n]||'[]')}catch{return[]}};
+const store=(n,m)=>{try{localStorage['m:'+n]=JSON.stringify(m.filter(x=>!x.pending).slice(-200))}catch{}};
+function md(t){
+  t=t.replace(new RegExp(FENCE+'phone[\\s\\S]*?(?:'+FENCE+'|$)','g'),'').trim();
+  const parts=esc(t).split(FENCE);
+  return parts.map((s,i)=>i%2?`<pre><code>${s.replace(/^[a-z0-9+#-]*\n/i,'')}</code></pre>`:s.replace(/`([^`\n]+)`/g,'<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g,'<b>$1</b>')).join('');
+}
+function actionsOf(t){
+  const out=[];const re=new RegExp(FENCE+'phone\\s*([\\s\\S]*?)'+FENCE,'g');let m;
+  while((m=re.exec(t))){try{const j=JSON.parse(m[1]);(Array.isArray(j)?j:[j]).forEach(a=>{if(a&&a.action)out.push(a)})}catch{}}
+  return out.slice(0,3);
+}
+const label=a=>({open_app:'Open '+(a.name||'app'),open_url:'Open '+(a.url||'link'),dial:'Call '+(a.number||''),sms:'Text '+(a.number||''),email:'Email '+(a.to||''),search:'Search “'+(a.query||'')+'”',map:'Map “'+(a.query||'')+'”',alarm:'Alarm '+String(a.hour||0).padStart(2,'0')+':'+String(a.minute||0).padStart(2,'0'),timer:'Timer '+(a.seconds||0)+'s',settings:'Open '+(a.page||'')+' settings',share:'Share text'}[a.action]||a.action);
+function runAction(a){try{return String(A.phone(JSON.stringify(a)))}catch(e){return 'error: '+e.message}}
+
+async function chatView(pn){
+  let msgs=load(pn);cur=pn;
+  $('#app').innerHTML=`<div class="top"><button class="ib" id="bk" aria-label="Back">${ICON.back}</button><div class="av" style="width:40px;height:40px;border-radius:12px">${esc(pn[0].toUpperCase())}</div><h1 style="font-size:19px;flex:1">${esc(pn)}</h1><button class="ib" id="nw" aria-label="New chat">${ICON.new}</button></div>
+  <div class="chat" id="chat"></div>
+  <div class="composer"><textarea id="ta" rows="1" placeholder="Message ${esc(pn)}"></textarea><button class="send" id="sd" aria-label="Send">${ICON.send}</button></div>`;
+  const chat=$('#chat'),ta=$('#ta');
+  $('#bk').onclick=()=>location.hash='#/';
+  $('#nw').onclick=async()=>{if(busy)return;if(!confirm('Start a new chat with '+pn+'? This clears the conversation.'))return;
+    try{await api('/api/playground/reset','POST',{model:pn})}catch(e){toast(e.message);return}msgs=[];store(pn,msgs);draw()};
+  ta.oninput=()=>{ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,140)+'px'};
+
+  function bubble(m,i){
+    if(m.pending&&!m.content)return `<div class="msg assistant"><span class="typing"><i></i><i></i><i></i></span></div>`;
+    let h=`<div class="msg ${m.role}${m.err?' err':''}" data-i="${i}">${m.role==='assistant'&&!m.err?md(m.content):esc(m.content)}</div>`;
+    if(m.role==='assistant'&&!m.pending&&!m.err&&phoneOn()){
+      actionsOf(m.content).forEach((a,k)=>{const d=(m.done||{})[k];
+        h+=`<div class="act ${d?'done':''}"><span>${esc(d||label(a))}</span>${d?'':`<button class="btn sm" data-i="${i}" data-k="${k}">Run</button>`}</div>`});
+    }
+    return h;
+  }
+  function draw(){
+    chat.innerHTML=msgs.length?msgs.map(bubble).join(''):`<div class="empty">${orb()}<b style="color:var(--tx);font-size:18px">Talk to ${esc(pn)}</b><p>This chat stays open on ${esc(pn)}, so it remembers the conversation.</p></div>`;
+    chat.querySelectorAll('.act button').forEach(b=>b.onclick=()=>{const m=msgs[b.dataset.i],a=actionsOf(m.content)[b.dataset.k];m.done=m.done||{};m.done[b.dataset.k]=runAction(a);store(pn,msgs);draw()});
+    chat.scrollTop=chat.scrollHeight;
+  }
+  async function send(){
+    const text=ta.value.trim();if(!text||busy)return;
+    ta.value='';ta.style.height='auto';busy=true;$('#sd').disabled=true;
+    msgs.push({role:'user',content:text});const me={role:'assistant',content:'',pending:true};msgs.push(me);draw();
+    try{
+      const hist=msgs.filter(m=>!m.pending&&!m.err).map(m=>({role:m.role,content:m.content})).slice(-40);
+      const sys=sysPrompt(pn),body={model:pn,messages:(sys?[{role:'system',content:sys}]:[]).concat(hist),stream:true};
+      const r=await fetch('/api/playground',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+tok},body:JSON.stringify(body)});
+      if(r.status===401){logout(true);return}
+      if(!(r.headers.get('content-type')||'').includes('event-stream')){const j=await r.json().catch(()=>({}));throw new Error((j.error&&(j.error.message||j.error))||'Error '+r.status)}
+      const rd=r.body.getReader(),dec=new TextDecoder();let buf='';
+      for(;;){const {done,value}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});let i;
+        while((i=buf.indexOf('\n\n'))>=0){const ev=buf.slice(0,i).trim();buf=buf.slice(i+2);if(!ev.startsWith('data:'))continue;const d=ev.slice(5).trim();if(d==='[DONE]')continue;
+          let j;try{j=JSON.parse(d)}catch{continue}
+          if(j.error)throw new Error(j.error.message||'The AI could not answer');
+          const t=j.choices&&j.choices[0]&&j.choices[0].delta&&j.choices[0].delta.content;
+          if(t&&cur===pn){me.content+=t;draw()}else if(t)me.content+=t}}
+      delete me.pending;if(!me.content.trim()){me.content='No reply came back. Try again, or check the site is still signed in.';me.err=true}
+    }catch(e){delete me.pending;me.content=e.message;me.err=true}
+    busy=false;store(pn,msgs);
+    if(cur===pn){const sd=$('#sd');if(sd)sd.disabled=false;draw();
+      if(phoneOn()&&!askFirst()&&!me.err){const as=actionsOf(me.content);me.done={};as.forEach((a,k)=>me.done[k]=runAction(a));store(pn,msgs);draw()}}
+  }
+  $('#sd').onclick=send;
+  draw();
+}
+const PHONE_RULES='You are running inside an Android phone app and can control the phone. When the user asks for something the phone can do, reply briefly and add an action block, exactly like this:\n'+FENCE+'phone\n{"action":"open_app","name":"WhatsApp"}\n'+FENCE+'\nAvailable actions (valid JSON, one block per action): open_app{name}, open_url{url}, dial{number}, sms{number,body}, email{to,subject,body}, search{query}, map{query}, alarm{hour,minute,label}, timer{seconds,label}, settings{page: wifi|bluetooth|display|sound|battery|apps|location|main}, share{text}. The user confirms each action before it runs. Only use an action block when the user wants the phone to do something.';
+function sysPrompt(pn){
+  const all=(localStorage['rr:all']||'').trim(),own=(localStorage['rr:'+pn]||'').trim(),s=[];
+  if(all)s.push('Rules from the user (always follow them):\n'+all);
+  if(own)s.push('Extra rules for this assistant:\n'+own);
+  if(phoneOn())s.push(PHONE_RULES);
+  return s.join('\n\n');
+}
+
+/* ---------- settings ---------- */
+function settingsView(){
+  const sw=(id,on)=>`<span class="sw ${on?'on':''}" id="${id}"></span>`;
+  $('#app').innerHTML=`<div class="top"><button class="ib" id="bk" aria-label="Back">${ICON.back}</button><h1>Settings</h1></div><div class="scroll">
+  <div class="card" style="display:flex;gap:12px;align-items:center">${localStorage.pic?`<img src="${esc(localStorage.pic)}" referrerpolicy="no-referrer" style="width:46px;height:46px;border-radius:50%">`:`<div class="av" style="border-radius:50%">${esc((email||'?')[0].toUpperCase())}</div>`}<div style="min-width:0"><b>Signed in</b><div class="mu" style="overflow:hidden;text-overflow:ellipsis">${esc(email)}</div></div></div>
+  <div class="sec">Behaviour</div><div class="card" style="padding:4px 16px">
+   <button class="row" id="rr"><div class="m"><b>Rule room</b><small>Write extra rules every AI must follow</small></div>›</button>
+   ${A?`<button class="row" id="pcb"><div class="m"><b>Let the AI control my phone</b><small>Open apps, set alarms, call, text, search</small></div>${sw('pc',phoneOn())}</button>
+   <button class="row" id="pab"><div class="m"><b>Ask before it acts</b><small>Show a Run button for each action</small></div>${sw('pa',askFirst())}</button>`:''}
+  </div>
+  <div class="sec">Accounts</div><div class="card" style="padding:4px 16px">
+   <button class="row" id="dash"><div class="m"><b>Sign in to a site</b><small>Open the full dashboard: Providers → Live view</small></div>›</button>
+   <button class="row" id="keys"><div class="m"><b>API keys &amp; logs</b><small>Open the full dashboard</small></div>›</button>
+  </div>
+  <div class="sec">App</div><div class="card" style="padding:4px 16px">
+   ${A?`<button class="row" id="srv"><div class="m"><b>Relay address</b><small>${esc(A.server())}</small></div>›</button>`:''}
+   <button class="row" id="rl"><div class="m"><b>Reload latest version</b><small>The app updates itself from your relay</small></div>›</button>
+   <button class="row" id="lo"><div class="m"><b style="color:var(--bad)">Sign out</b></div></button>
+  </div></div>`;
+  $('#bk').onclick=()=>location.hash='#/';$('#rr').onclick=()=>location.hash='#/rules';
+  const tg=(btn,id,key,def)=>{const b=$(btn);if(!b)return;b.onclick=()=>{const on=localStorage[key]===undefined?def:localStorage[key]!=='0';localStorage[key]=on?'0':'1';$(id).classList.toggle('on',!on)}};
+  tg('#pcb','#pc','pc',true);tg('#pab','#pa','pcask',true);
+  $('#dash').onclick=()=>location.href='/#/providers';$('#keys').onclick=()=>location.href='/#/keys';
+  if($('#srv'))$('#srv').onclick=()=>A.setServer();
+  $('#rl').onclick=()=>location.reload();$('#lo').onclick=()=>{if(confirm('Sign out of Relay?'))logout()};
+}
+async function rulesView(){
+  try{if(!providers.length)providers=await api('/api/providers')}catch{}
+  let sel='all';
+  $('#app').innerHTML=`<div class="top"><button class="ib" id="bk" aria-label="Back">${ICON.back}</button><h1>Rule room</h1></div><div class="scroll">
+  <p class="mu" style="margin:0 0 12px">Rules are sent to the AI at the start of each chat. Changes apply to the next new chat, or right away if the rules changed since the chat began.</p>
+  <div class="chips" id="rc"></div>
+  <textarea id="rt" class="in" style="min-height:260px" placeholder="Example: Answer in short sentences. Never use emojis. Call me Boss."></textarea>
+  <div style="display:flex;gap:10px;margin-top:12px"><button class="btn" id="sv">Save rules</button></div></div>`;
+  const keyOf=()=>'rr:'+sel;
+  const chips=()=>{$('#rc').innerHTML=[['all','All AIs']].concat(providers.map(p=>[p.name,p.name])).map(c=>`<button class="chip ${c[0]===sel?'on':''}" data-k="${esc(c[0])}">${esc(c[1])}</button>`).join('');
+    $('#rc').querySelectorAll('.chip').forEach(b=>b.onclick=()=>{sel=b.dataset.k;$('#rt').value=localStorage[keyOf()]||'';chips()})};
+  chips();$('#rt').value=localStorage[keyOf()]||'';
+  $('#bk').onclick=()=>history.back();
+  $('#sv').onclick=()=>{const v=$('#rt').value.trim();if(v)localStorage[keyOf()]=v;else localStorage.removeItem(keyOf());toast('Rules saved')};
+}
+
+/* ---------- start ---------- */
+(async function start(){
+  const q=new URLSearchParams(location.search);
+  if(q.has('handoff')&&!A){return handoffView()}
+  if(q.get('code')){
+    try{const j=await (await fetch('/api/handoff/redeem',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:q.get('code')})})).json();
+      if(j.token){tok=localStorage.tk=j.token;email=localStorage.em=j.email||'';if(j.picture)localStorage.pic=j.picture}else toast(j.error||'Sign-in failed')}catch{toast('Sign-in failed')}
+    history.replaceState(null,'','/app/#/');
+  }
+  route();
+})();
+</script>
+</body>
+</html>

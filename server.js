@@ -86,6 +86,19 @@ app.post('/api/login', (req, res) => {
   res.json({ token: session(u.id), email: u.email });
 });
 
+// ---------- app sign-in hand-off: the Android app opens the browser for Google sign-in and gets back a one-time code (valid 60s) ----------
+const handoffs = {};
+app.post('/api/handoff', auth, (req, res) => {
+  const now = Date.now(); for (const k of Object.keys(handoffs)) if (handoffs[k].exp < now) delete handoffs[k];
+  const code = crypto.randomBytes(18).toString('hex'); handoffs[code] = { uid: req.uid, exp: now + 60000 }; res.json({ code });
+});
+app.post('/api/handoff/redeem', (req, res) => {
+  const c = String((req.body || {}).code || ''), h = handoffs[c]; delete handoffs[c];
+  const u = h && h.exp > Date.now() && db.users.find(x => x.id === h.uid);
+  if (!u) return res.status(400).json({ error: 'Sign-in link expired. Try again.' });
+  res.json({ token: session(u.id), email: u.email, name: u.name, picture: u.picture });
+});
+
 // ---------- password reset (email goes out over an HTTPS mail API: Render's free tier blocks SMTP) ----------
 const mailReady = () => !!((process.env.BREVO_API_KEY && process.env.MAIL_FROM) || process.env.RESEND_API_KEY);
 async function sendMail(to, subject, html, text) {

@@ -282,8 +282,9 @@ app.post('/api/providers/:id/test', auth, async (req, res) => {
   db.logs.push({ ts: Date.now(), userId: req.uid, keyId: 'test', provider: p.name, ms: r.ms, ok: r.ok, err: r.error || '', promptLen: 29 }); save();
   res.json(r);
 });
+const roomConv = b => (b && b.room) ? 'room-' + String(b.room).replace(/[^\w]/g, '').slice(0, 40) : 'playground'; // each AI room keeps its own chat per AI, apart from the solo playground chat
 app.post('/api/playground', auth, async (req, res) => {
-  if (!req.body.debug) return run(req.uid, 'playground', req.body || {}, res, { conv: 'playground' });
+  if (!req.body.debug) return run(req.uid, 'playground', req.body || {}, res, { conv: roomConv(req.body) });
   const p = db.providers.find(p => p.userId === req.uid && p.name === req.body.model);
   if (!p) return res.status(404).json({ error: 'Provider not found' });
   res.json(await ask(prov(p), { full: toPrompt(req.body.messages), last: lastUserOf(req.body.messages) }, true, 'playground'));
@@ -291,7 +292,7 @@ app.post('/api/playground', auth, async (req, res) => {
 app.post('/api/playground/reset', auth, async (req, res) => { // "New chat" button: the only way the playground chat of a provider is ever replaced
   const p = db.providers.find(p => p.userId === req.uid && p.name === (req.body || {}).model);
   if (!p) return res.status(404).json({ error: 'Provider not found' });
-  await B.forget(`${p.userId}:${p.id}:playground`); delete sysSent[`${p.userId}:${p.id}:playground`]; res.json({ ok: 1 });
+  const ck = `${p.userId}:${p.id}:${roomConv(req.body)}`; await B.forget(ck); delete sysSent[ck]; res.json({ ok: 1 });
 });
 app.post('/api/providers/:id/live', auth, async (req, res) => {
   const p = db.providers.find(p => p.id === req.params.id && p.userId === req.uid);

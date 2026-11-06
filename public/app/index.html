@@ -89,6 +89,27 @@ textarea.in{resize:none;min-height:140px;line-height:1.5}
 .sw.on{background:var(--a1);border-color:var(--a1)}.sw.on:after{left:23px;background:#fff}
 .sec{color:var(--mu);font-size:13px;margin:22px 0 6px}
 .toast{position:fixed;left:50%;bottom:calc(90px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--s3);border:1px solid var(--ln);padding:10px 16px;border-radius:99px;z-index:30;font-size:14px}
+.tabs{display:flex;gap:8px;padding:0 18px 10px}
+.rbar{display:flex;gap:8px;overflow-x:auto;padding:6px 14px 0}.rbar .chip{white-space:nowrap}
+.who{font-size:12px;margin:2px 8px -4px;font-weight:600}
+.vo{position:fixed;inset:0;z-index:40;display:flex;flex-direction:column;align-items:center;padding:calc(18px + env(safe-area-inset-top)) 20px calc(22px + env(safe-area-inset-bottom));background:radial-gradient(700px 520px at 50% 36%,#3a2c9acc,transparent 65%),#080913}
+.vtop{font-size:17px}.vst{color:var(--mu);margin-top:6px;min-height:24px}
+.vorb{margin:auto 0 0;width:210px;height:210px;border-radius:50%;position:relative;display:grid;place-items:center}
+.vcore{width:150px;height:150px;border-radius:50%;background:linear-gradient(135deg,var(--a1),var(--a2));display:grid;place-items:center;box-shadow:0 0 60px #8b7bffaa;position:relative;z-index:1}
+.vcore svg{width:46%;height:46%}
+.vglow{position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle,#36d6ff66,transparent 70%)}
+.st-listening .vglow{animation:br 2.4s ease-in-out infinite}
+.st-speaking .vcore{animation:sp .7s ease-in-out infinite alternate}
+.st-thinking .vcore{animation:sp 1.4s ease-in-out infinite alternate;filter:hue-rotate(50deg)}
+.st-muted .vcore,.st-idle .vcore{filter:saturate(.4) brightness(.8)}
+@keyframes br{0%,100%{transform:scale(1);opacity:.6}50%{transform:scale(1.35);opacity:1}}
+@keyframes sp{from{transform:scale(.94)}to{transform:scale(1.08)}}
+.vcap{min-height:92px;max-width:340px;text-align:center;font-size:18px;margin:16px 0 8px;overflow:hidden}
+.vpeople{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-bottom:12px}
+.vp{display:flex;flex-direction:column;align-items:center;gap:4px;opacity:.5;transition:.2s}.vp.on{opacity:1;transform:translateY(-4px)}.vp small{font-size:12px;color:var(--mu)}
+.vbtns{display:flex;gap:18px;align-items:center;margin-top:auto}
+.ib.big{width:58px;height:58px}.ib.end{background:#ff4d6a;border-color:#ff4d6a}.ib.end svg{stroke:#fff}.ib.big.off{background:var(--bad);border-color:var(--bad)}
+@media (prefers-reduced-motion:reduce){.vo *{animation:none!important}}
 </style>
 </head>
 <body>
@@ -128,6 +149,7 @@ function route(){
   if(!tok)return authView();
   const h=location.hash.replace(/^#\/?/,'');
   if(h.startsWith('chat/'))return chatView(decodeURIComponent(h.slice(5)));
+  if(h.startsWith('room/'))return roomView(h.slice(5));
   if(h==='settings')return settingsView();
   if(h==='rules')return rulesView();
   return listView();
@@ -194,9 +216,12 @@ function handoffDone(code){
 
 /* ---------- providers ---------- */
 async function listView(){
-  $('#app').innerHTML=`<div class="top">${orb()}<h1>Relay</h1><div class="sp"></div><button class="ib" id="add" aria-label="Add AI">${ICON.plus}</button><button class="ib" id="st" aria-label="Settings">${ICON.gear}</button></div><div class="scroll" id="list"><div class="mu" style="padding:20px 4px">Loading…</div></div>`;
-  $('#add').onclick=addSheet;$('#st').onclick=()=>location.hash='#/settings';
+  const tab=localStorage.tab==='rooms'?'rooms':'ais';
+  $('#app').innerHTML=`<div class="top">${orb()}<h1>Relay</h1><div class="sp"></div><button class="ib" id="add" aria-label="Add">${ICON.plus}</button><button class="ib" id="st" aria-label="Settings">${ICON.gear}</button></div><div class="tabs"><button class="chip ${tab==='ais'?'on':''}" id="t1">AIs</button><button class="chip ${tab==='rooms'?'on':''}" id="t2">AI rooms</button></div><div class="scroll" id="list"><div class="mu" style="padding:20px 4px">Loading…</div></div>`;
+  $('#t1').onclick=()=>{localStorage.tab='ais';listView()};$('#t2').onclick=()=>{localStorage.tab='rooms';listView()};
+  $('#st').onclick=()=>location.hash='#/settings';$('#add').onclick=()=>tab==='rooms'?roomSheet():addSheet();
   try{providers=await api('/api/providers')}catch(e){$('#list').innerHTML=`<div class="empty">${esc(e.message)}</div>`;return}
+  if(tab==='rooms')return roomsTab();
   if(!providers.length){$('#list').innerHTML=`<div class="empty">${orb()}<b style="color:var(--tx);font-size:18px">No AIs yet</b><p>Add ChatGPT, Gemini, DeepSeek or any chat website, then talk to it from here.</p><button class="btn" id="a2">Add your first AI</button></div>`;$('#a2').onclick=addSheet;return}
   $('#list').innerHTML=providers.map(p=>{let h='';try{h=new URL(p.url).host}catch{}
     const n=lastText(p.name);
@@ -352,6 +377,255 @@ async function rulesView(){
   chips();$('#rt').value=localStorage[keyOf()]||'';
   $('#bk').onclick=()=>history.back();
   $('#sv').onclick=()=>{const v=$('#rt').value.trim();if(v)localStorage[keyOf()]=v;else localStorage.removeItem(keyOf());toast('Rules saved')};
+}
+
+/* ---------- AI rooms: a meeting where the AIs and you talk ---------- */
+Object.assign(ICON,{
+  mic:'<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/></svg>',
+  micoff:'<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3M3 3l18 18"/></svg>',
+  dots:'<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/></svg>',
+  stop:'<svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
+  x:'<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>'
+});
+const RC={},RTS={},COLORS=['#8b7bff','#36d6ff','#ff9f6b','#5eead4','#f472b6','#facc15','#a3e635'];
+const VPRESETS=[{p:1,r:1},{p:.8,r:.95},{p:1.25,r:1.05},{p:.9,r:1.12},{p:1.1,r:.9},{p:.72,r:1}];
+const cap=s=>s?s[0].toUpperCase()+s.slice(1):s, sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const roomIds=()=>{try{return JSON.parse(localStorage.rooms||'[]')}catch{return[]}};
+function getRoom(id){if(RC[id])return RC[id];try{const r=JSON.parse(localStorage['room:'+id]||'null');if(r)RC[id]=r;return r}catch{return null}}
+function saveRoom(r){try{localStorage['room:'+r.id]=JSON.stringify(Object.assign({},r,{msgs:r.msgs.slice(-300)}))}catch{}}
+const rtOf=id=>RTS[id]||(RTS[id]={id,run:0,active:0,lock:Promise.resolve(),typing:null,speaking:null,vm:null});
+const colorOf=(room,n)=>COLORS[Math.max(0,room.members.indexOf(n))%COLORS.length];
+const voiceOf=(room,n)=>{const i=Math.max(0,room.members.indexOf(n));return Object.assign({idx:i},VPRESETS[i%VPRESETS.length])};
+const inRoom=id=>location.hash==='#/room/'+id;
+
+/* voice layer: Android speech services inside the app, the browser's own otherwise */
+const SRC=window.SpeechRecognition||window.webkitSpeechRecognition;
+const Voice={n:0,pend:{},L:null,rec:null,
+  ok(){return A?!!(A.voiceOk&&A.voiceOk()):!!SRC},
+  listen(onPartial){return new Promise((res,rej)=>{
+    Voice.stopListen();Voice.L={res,rej,onPartial};
+    if(A){A.listen();return}
+    const r=Voice.rec=new SRC();r.interimResults=true;r.continuous=false;r.lang=navigator.language||'en-US';
+    r.onresult=e=>{let t='',f=false;for(const x of e.results){t+=x[0].transcript;if(x.isFinal)f=true}onPartial&&onPartial(t);if(f&&Voice.L){const L=Voice.L;Voice.L=null;L.res(t)}};
+    r.onerror=e=>{if(Voice.L){const L=Voice.L;Voice.L=null;L.rej(e.error==='not-allowed'?'perm':e.error)}};
+    r.onend=()=>{if(Voice.L){const L=Voice.L;Voice.L=null;L.rej('end')}};
+    try{r.start()}catch(e){Voice.L=null;rej('err')}})},
+  stopListen(){const L=Voice.L;Voice.L=null;try{if(A)A.stopListen();else if(Voice.rec)Voice.rec.abort()}catch{}if(L)L.rej('stop')},
+  speak(text,v){return new Promise(res=>{const id=String(++Voice.n);Voice.pend[id]=res;
+    text=String(text).replace(/https?:\/\/\S+/g,'link').slice(0,3500);
+    if(A){A.speak(id,text,v.p,v.r,v.idx);return}
+    if(!window.speechSynthesis){delete Voice.pend[id];return res()}
+    const u=new SpeechSynthesisUtterance(text);u.pitch=v.p;u.rate=v.r;const vs=speechSynthesis.getVoices().filter(x=>/^en/i.test(x.lang));if(vs.length)u.voice=vs[v.idx%vs.length];
+    u.onend=u.onerror=()=>{delete Voice.pend[id];res()};speechSynthesis.speak(u)})},
+  stopSpeak(){try{if(A)A.stopSpeak();else if(window.speechSynthesis)speechSynthesis.cancel()}catch{}const p=Voice.pend;Voice.pend={};Object.values(p).forEach(f=>f())}
+};
+window.__heard=(t,fin)=>{const L=Voice.L;if(!L)return;if(L.onPartial)L.onPartial(t);if(fin){Voice.L=null;L.res(t)}};
+window.__heardErr=c=>{const L=Voice.L;if(!L)return;Voice.L=null;L.rej(String(c))};
+window.__spoke=id=>{const f=Voice.pend[id];if(f){delete Voice.pend[id];f()}};
+
+/* talking to one AI of the room (its own chat per room, never mixed with its solo chat) */
+async function streamPlayground(body,onDelta){
+  const r=await fetch('/api/playground',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+tok},body:JSON.stringify(body)});
+  if(r.status===401){logout(true);throw new Error('Signed out')}
+  if(!(r.headers.get('content-type')||'').includes('event-stream')){const j=await r.json().catch(()=>({}));throw new Error((j.error&&(j.error.message||j.error))||'Error '+r.status)}
+  const rd=r.body.getReader(),dec=new TextDecoder();let buf='',all='';
+  for(;;){const {done,value}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});let i;
+    while((i=buf.indexOf('\n\n'))>=0){const ev=buf.slice(0,i).trim();buf=buf.slice(i+2);if(!ev.startsWith('data:'))continue;const d=ev.slice(5).trim();if(d==='[DONE]')continue;
+      let j;try{j=JSON.parse(d)}catch{continue}
+      if(j.error)throw new Error(j.error.message||'The AI could not answer');
+      const t=j.choices&&j.choices[0]&&j.choices[0].delta&&j.choices[0].delta.content;if(t){all+=t;onDelta&&onDelta(all)}}}
+  return all;
+}
+function roomSys(room,name){
+  const others=room.members.filter(m=>m!==name).map(cap).join(', ');
+  const rules=[(localStorage['rr:all']||'').trim(),(localStorage['rr:'+name]||'').trim(),room.topic].filter(Boolean).join('\n');
+  return 'You are '+cap(name)+', taking part in a live group meeting. Present: the User (a person) and these AIs: '+others+'. Every message you receive is labelled with its speaker, like "[User]: ..." or "[Gemini]: ...". Rules: (1) Reply only as '+cap(name)+', in your own voice. Never write lines for anyone else and never start with a label. (2) Keep it short: one to three sentences, unless the User asks for detail. (3) Talk with the others by name: build on, question or politely disagree with what they said, and do not repeat points already made. (4) Answer the User directly when they speak to you or to everyone. (5) If you have nothing useful to add, reply with exactly PASS. (6) Plain spoken sentences only: no markdown, lists, emojis or links, because your words may be read aloud.'+(rules?'\nNotes and rules from the User for this meeting:\n'+rules:'');
+}
+function historyFor(room,name){
+  const h=[];
+  for(const m of room.msgs){
+    if(m.who==='system')continue;
+    if(m.who===name)h.push({role:'assistant',content:m.pass?'PASS':m.content});
+    else if(!m.pass)h.push({role:'user',content:'['+(m.who==='user'?'User':cap(m.who))+']: '+m.content});
+  }
+  return h.slice(-40);
+}
+function cleanReply(t,name,room){
+  t=String(t||'').replace(new RegExp('^\\s*\\[?\\*{0,2}'+name+'\\*{0,2}\\]?\\s*:\\s*','i'),'');
+  const others=room.members.filter(m=>m!==name).concat(['user']);
+  const k=t.search(new RegExp('\\n\\s*\\[?\\*{0,2}(?:'+others.join('|')+')\\*{0,2}\\]?\\s*:','i'));
+  if(k>0)t=t.slice(0,k);
+  return t.replace(/\*\*|__|`/g,'').trim();
+}
+/* one generation at a time across the whole room: this is what stops the AIs colliding */
+function generate(R,name){const job=R.lock.then(()=>doGen(R,name));R.lock=job.catch(()=>{});return job}
+async function doGen(R,name){
+  const room=getRoom(R.id),hist=historyFor(room,name);
+  if(!hist.length||hist[hist.length-1].role!=='user')return {skip:true};
+  R.typing=name;refresh(R);
+  try{
+    const text=await streamPlayground({model:name,room:room.id,messages:[{role:'system',content:roomSys(room,name)}].concat(hist),stream:true});
+    R.typing=null;const t=cleanReply(text,name,room);
+    if(!t)return {err:'No reply came back. Check that this AI is still signed in.'};
+    if(/^PASS\b/i.test(t))return {pass:true};
+    return {text:t};
+  }catch(e){R.typing=null;return {err:e.message}}
+}
+async function speakAs(R,n,text){
+  const room=getRoom(R.id);R.speaking=n;if(R.vm)R.vm.caption=cap(n)+': '+text;refresh(R);
+  await Voice.speak(text,voiceOf(room,n));
+  if(R.speaking===n)R.speaking=null;refresh(R);
+}
+async function runTurns(R,my,order,rounds,opts){
+  R.active++;
+  try{
+    const room=getRoom(R.id);let chain=Promise.resolve();
+    outer:for(let r=0;r<rounds;r++){
+      let spoke=false;
+      for(const n of order){
+        if(R.run!==my)break outer;
+        const res=await generate(R,n);
+        if(res.skip)continue;
+        if(res.err){room.msgs.push({who:'system',content:cap(n)+': '+res.err});saveRoom(room);refresh(R);continue}
+        room.msgs.push({who:n,content:res.pass?'PASS':res.text,pass:!!res.pass});saveRoom(room);refresh(R);
+        if(res.pass)continue;
+        spoke=true;
+        if(opts.speak)chain=chain.then(()=>R.run===my?speakAs(R,n,res.text):null);
+      }
+      if(!spoke)break;
+    }
+    await chain;
+  }finally{R.active--;R.typing=null;R.speaking=null;refresh(R)}
+}
+async function converse(R,text,opts){
+  const room=getRoom(R.id);opts=opts||{};
+  const my=++R.run;Voice.stopSpeak();
+  room.msgs.push({who:'user',content:text});saveRoom(room);refresh(R);
+  const asked=[...text.toLowerCase().matchAll(/@([a-z0-9-]+)/g)].map(x=>x[1]);
+  let order=room.members.slice();
+  const named=order.filter(n=>asked.includes(n));
+  if(asked.includes('all')||asked.includes('everyone')){}
+  else if(named.length)order=named;
+  else{const k=(room.off||0)%order.length;order=order.slice(k).concat(order.slice(0,k));room.off=(room.off||0)+1}
+  await runTurns(R,my,order,1,opts);
+}
+async function discuss(R,opts){
+  const room=getRoom(R.id),my=++R.run;Voice.stopSpeak();
+  const k=(room.off||0)%room.members.length,order=room.members.slice(k).concat(room.members.slice(0,k));room.off=(room.off||0)+1;
+  await runTurns(R,my,order,3,Object.assign({discuss:true},opts||{}));
+}
+function stopRoom(R){R.run++;Voice.stopSpeak();refresh(R)}
+
+/* ---------- screens ---------- */
+function refresh(R){if(R.vm&&R.vm.on)vmDraw(R);if(inRoom(R.id))drawRoom(R)}
+function roomsTab(){
+  const ids=roomIds().filter(id=>getRoom(id));
+  if(!ids.length){$('#list').innerHTML=`<div class="empty">${orb()}<b style="color:var(--tx);font-size:18px">No rooms yet</b><p>Put two or more AIs in one room. They hear each other, take turns, and you can talk to them by voice or text.</p><button class="btn" id="r2">Create an AI room</button></div>`;$('#r2').onclick=roomSheet;return}
+  $('#list').innerHTML=ids.map(id=>{const r=getRoom(id),l=r.msgs.filter(m=>!m.pass&&m.who!=='system').slice(-1)[0];
+    return `<button class="card prov" data-r="${esc(id)}"><div class="av">${esc(r.name[0].toUpperCase())}</div><div class="m"><b>${esc(r.name)}</b><small>${esc(r.members.map(cap).join(', '))}</small>${l?`<small>${esc((l.who==='user'?'You: ':cap(l.who)+': ')+l.content.replace(/\s+/g,' ').slice(0,60))}</small>`:''}</div></button>`}).join('');
+  document.querySelectorAll('[data-r]').forEach(b=>b.onclick=()=>location.hash='#/room/'+b.dataset.r);
+}
+function roomSheet(){
+  if(providers.length<2){toast('Add at least two AIs first');return}
+  const v=sheet(`<h2>New AI room</h2><label class="fld"><span>Room name</span><input id="rn" class="in" placeholder="Brainstorm"></label>
+  <div class="mu" style="font-size:13px;margin-bottom:6px">Who is in the room (pick two or more)</div>
+  <div class="chips" id="rm">${providers.map(p=>`<button class="chip" data-n="${esc(p.name)}">${esc(cap(p.name))}</button>`).join('')}</div>
+  <label class="fld"><span>Topic or rules for this room (optional)</span><textarea id="rtp" class="in" style="min-height:90px"></textarea></label>
+  <div class="err" id="rerr"></div><button class="btn" id="rgo">Create room</button>`);
+  v.querySelectorAll('#rm .chip').forEach(c=>c.onclick=()=>c.classList.toggle('on'));
+  v.querySelector('#rgo').onclick=()=>{
+    const mem=[...v.querySelectorAll('#rm .chip.on')].map(c=>c.dataset.n);
+    if(mem.length<2){v.querySelector('#rerr').textContent='Pick at least two AIs.';return}
+    const id='r'+Math.random().toString(36).slice(2,10);
+    const room={id,name:v.querySelector('#rn').value.trim()||'Meeting',members:mem,topic:v.querySelector('#rtp').value.trim(),msgs:[],off:0,created:Date.now()};
+    RC[id]=room;saveRoom(room);const ids=roomIds();ids.unshift(id);localStorage.rooms=JSON.stringify(ids);v.remove();location.hash='#/room/'+id;
+  };
+}
+function roomView(id){
+  const room=getRoom(id);if(!room){location.hash='#/';return}
+  const R=rtOf(id);
+  $('#app').innerHTML=`<div class="top"><button class="ib" id="bk" aria-label="Back">${ICON.back}</button><div style="flex:1;min-width:0"><h1 style="font-size:19px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(room.name)}</h1><div class="mu" style="font-size:12px">${esc(room.members.map(cap).join(', '))}</div></div><button class="ib" id="mic" aria-label="Voice meeting">${ICON.mic}</button><button class="ib" id="mn" aria-label="Room menu">${ICON.dots}</button></div>
+  <div class="chat" id="chat"></div>
+  <div class="rbar"><button class="chip" id="disc">Let them talk</button>${room.members.map(n=>`<button class="chip mem" data-n="${esc(n)}" style="border-color:${colorOf(room,n)}66">@${esc(n)}</button>`).join('')}</div>
+  <div class="composer"><textarea id="ta" rows="1" placeholder="Say something to the room…"></textarea><button class="send" id="sd" aria-label="Send">${ICON.send}</button></div>`;
+  const ta=$('#ta');
+  $('#bk').onclick=()=>location.hash='#/';
+  ta.oninput=()=>{ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,140)+'px'};
+  document.querySelectorAll('.mem').forEach(b=>b.onclick=()=>{ta.value=(ta.value+' @'+b.dataset.n+' ').trimStart();ta.focus()});
+  $('#sd').onclick=()=>{const t=ta.value.trim();if(!t){if(R.active>0)stopRoom(R);return}ta.value='';ta.style.height='auto';converse(R,t,{})};
+  $('#disc').onclick=()=>{if(room.msgs.length)discuss(R,{});else toast('Say something first')};
+  $('#mic').onclick=()=>startVoice(R);
+  $('#mn').onclick=()=>{const v=sheet(`<h2>${esc(room.name)}</h2><button class="row" id="rs"><div class="m"><b>Reset conversation</b><small>Clears the room and starts fresh chats with each AI</small></div></button><button class="row" id="rd"><div class="m"><b style="color:var(--bad)">Delete room</b></div></button>`);
+    const wipe=()=>Promise.all(room.members.map(n=>api('/api/playground/reset','POST',{model:n,room:room.id}).catch(()=>{})));
+    v.querySelector('#rs').onclick=async()=>{stopRoom(R);await wipe();room.msgs=[];saveRoom(room);v.remove();drawRoom(R)};
+    v.querySelector('#rd').onclick=async()=>{if(!confirm('Delete this room?'))return;stopRoom(R);await wipe();localStorage.removeItem('room:'+room.id);delete RC[room.id];localStorage.rooms=JSON.stringify(roomIds().filter(x=>x!==room.id));v.remove();location.hash='#/'}};
+  drawRoom(R);
+}
+function drawRoom(R){
+  const room=getRoom(R.id),chat=$('#chat');if(!chat||!room)return;
+  const near=chat.scrollHeight-chat.scrollTop-chat.clientHeight<140;
+  let h=room.msgs.slice(-80).map(m=>{
+    if(m.pass)return '';
+    if(m.who==='user')return `<div class="msg user">${esc(m.content)}</div>`;
+    if(m.who==='system')return `<div class="act done"><span>${esc(m.content)}</span></div>`;
+    return `<div class="who" style="color:${colorOf(room,m.who)}">${esc(cap(m.who))}</div><div class="msg assistant" style="border-color:${colorOf(room,m.who)}55">${md(m.content)}</div>`}).join('');
+  if(R.typing)h+=`<div class="who" style="color:${colorOf(room,R.typing)}">${esc(cap(R.typing))}</div><div class="msg assistant"><span class="typing"><i></i><i></i><i></i></span></div>`;
+  if(!h)h=`<div class="empty">${orb()}<b style="color:var(--tx);font-size:18px">${esc(room.name)}</b><p>Talk to everyone, or tap a name to ask one AI. They take turns, one at a time, and hear each other.</p></div>`;
+  chat.innerHTML=h;if(near)chat.scrollTop=chat.scrollHeight;
+  const sd=$('#sd');if(sd)sd.innerHTML=R.active>0&&!$('#ta').value.trim()?ICON.stop:ICON.send;
+}
+
+/* ---------- voice meeting (full screen, Copilot-style) ---------- */
+function startVoice(R){
+  if(!Voice.ok()){toast('Voice is not available here. Update the Relay app or use Chrome.');return}
+  if(R.vm&&R.vm.on)return;
+  const room=getRoom(R.id);
+  R.vm={on:true,muted:false,listening:false,idle:false,caption:'',miss:0,err:0,tap:null};
+  const d=document.createElement('div');d.id='vo';d.className='vo';
+  d.innerHTML=`<div class="vtop"><b>${esc(room.name)}</b></div><div class="vst" id="vst"></div>
+  <button class="vorb" id="vorb" aria-label="Tap to interrupt or talk"><span class="vglow"></span><span class="vcore">${ICON.spark}</span></button>
+  <div class="vcap" id="vcap"></div>
+  <div class="vpeople">${room.members.map(n=>`<div class="vp" data-n="${esc(n)}"><div class="av" style="color:${colorOf(room,n)}">${esc(n[0].toUpperCase())}</div><small>${esc(cap(n))}</small></div>`).join('')}</div>
+  <div class="vbtns"><button class="ib big" id="vmute" aria-label="Mute">${ICON.mic}</button><button class="btn sm alt" id="vdisc">Let them talk</button><button class="ib big end" id="vend" aria-label="End">${ICON.x}</button></div>`;
+  document.body.appendChild(d);
+  $('#vorb').onclick=()=>{if(R.speaking||R.active>0){stopRoom(R)}else if(R.vm.tap){const t=R.vm.tap;R.vm.tap=null;t()}};
+  $('#vmute').onclick=()=>{R.vm.muted=!R.vm.muted;if(R.vm.muted)Voice.stopListen();vmDraw(R)};
+  $('#vdisc').onclick=()=>{if(!room.msgs.length){toast('Say something first');return}Voice.stopListen();discuss(R,{speak:true})};
+  $('#vend').onclick=()=>vmClose(R);
+  vmDraw(R);voiceLoop(R);
+}
+function vmClose(R){
+  if(!R.vm)return;R.vm.on=false;Voice.stopListen();Voice.stopSpeak();R.run++;
+  if(R.vm.tap){const t=R.vm.tap;R.vm.tap=null;t()}
+  const d=$('#vo');if(d)d.remove();R.vm=null;
+}
+function vmDraw(R){
+  const d=$('#vo');if(!d||!R.vm)return;
+  const vm=R.vm,st=R.speaking?'speaking':(R.typing||R.active>0)?'thinking':vm.muted?'muted':vm.idle?'idle':vm.listening?'listening':'idle';
+  d.className='vo st-'+st;
+  const names={speaking:cap(R.speaking||'')+' is speaking. Tap to interrupt.',thinking:R.typing?cap(R.typing)+' is thinking…':'They are talking…',muted:'Muted',idle:'Tap the orb and speak',listening:'Listening…'};
+  $('#vst').textContent=names[st];$('#vcap').textContent=vm.caption||'';
+  d.querySelectorAll('.vp').forEach(p=>p.classList.toggle('on',p.dataset.n===(R.speaking||R.typing)));
+  $('#vmute').innerHTML=vm.muted?ICON.micoff:ICON.mic;$('#vmute').classList.toggle('off',vm.muted);
+}
+async function voiceLoop(R){
+  const vm=R.vm;
+  while(vm.on){
+    if(vm.muted||R.active>0){vm.listening=false;vmDraw(R);await sleep(250);continue}
+    vm.listening=true;vm.caption='';vmDraw(R);
+    let text='';
+    try{text=await Voice.listen(p=>{vm.caption='You: '+p;vmDraw(R)})}
+    catch(e){
+      vm.listening=false;if(!vm.on)break;const c=String(e);
+      if(c==='stop'||c==='aborted')continue;
+      if(c==='perm'||c==='9'){toast('Allow the microphone to talk to the room');vmClose(R);return}
+      if(['6','7','no-speech','end'].includes(c)){if(++vm.miss>=3){vm.miss=0;vm.idle=true;vmDraw(R);await new Promise(r=>vm.tap=r);vm.idle=false}continue}
+      await sleep(800);if(++vm.err>=4){toast('Voice input stopped. Check your internet and the Google app.');vmClose(R);return}continue}
+    vm.listening=false;vm.miss=0;vm.err=0;
+    if(!text.trim())continue;
+    vm.caption='You: '+text;vmDraw(R);
+    await converse(R,text,{speak:true});
+  }
 }
 
 /* ---------- start ---------- */

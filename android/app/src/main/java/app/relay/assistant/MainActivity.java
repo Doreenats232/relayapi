@@ -11,11 +11,18 @@ import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.graphics.Color;
 import android.net.Uri;
+import android.Manifest;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.AlarmClock;
 import android.provider.Settings;
+import android.speech.RecognitionListener;
+import android.speech.RecognizerIntent;
+import android.speech.SpeechRecognizer;
+import android.speech.tts.TextToSpeech;
+import android.speech.tts.UtteranceProgressListener;
+import android.speech.tts.Voice;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
@@ -36,6 +43,9 @@ import org.json.JSONObject;
 
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 
@@ -49,6 +59,9 @@ public class MainActivity extends Activity {
     private String base = "";
     private String pendingCode = null;
     private int bootId = 0;
+    private TextToSpeech tts;
+    private boolean ttsReady = false;
+    private SpeechRecognizer rec;
     private final Handler ui = new Handler(Looper.getMainLooper());
 
     @Override
@@ -108,6 +121,18 @@ public class MainActivity extends Activity {
         splash.addView(change);
         root.addView(splash, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         setContentView(root);
+
+        tts = new TextToSpeech(this, status -> {
+            if (status != TextToSpeech.SUCCESS) return;
+            tts.setLanguage(Locale.getDefault());
+            tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
+                @Override public void onStart(String id) { }
+                @Override public void onDone(String id) { js("window.__spoke('" + id + "')"); }
+                @Override public void onError(String id) { js("window.__spoke('" + id + "')"); }
+                @Override public void onStop(String id, boolean interrupted) { js("window.__spoke('" + id + "')"); }
+            });
+            ttsReady = true;
+        });
 
         handleIntent(getIntent());
         if (base.isEmpty()) askServer(); else boot();
@@ -217,6 +242,30 @@ public class MainActivity extends Activity {
             cm.setPrimaryClip(ClipData.newPlainText("relay", text));
         }
 
+        @JavascriptInterface public boolean voiceOk() { return SpeechRecognizer.isRecognitionAvailable(MainActivity.this); }
+
+        @JavascriptInterface public void listen() {
+            ui.post(() -> {
+                if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                    requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 7);
+                    return;
+                }
+                startRec();
+            });
+        }
+
+        @JavascriptInterface public void stopListen() {
+            ui.post(() -> { if (rec != null) { rec.cancel(); rec.destroy(); rec = null; } });
+        }
+
+        @JavascriptInterface public void speak(final String id, final String text, final float pitch, final float rate, final int vi) {
+            ui.post(() -> speakNow(id, text, pitch, rate, vi));
+        }
+
+        @JavascriptInterface public void stopSpeak() {
+            ui.post(() -> { if (tts != null) tts.stop(); });
+        }
+
         @JavascriptInterface public String phone(String json) {
             try {
                 return doAction(new JSONObject(json));
@@ -224,6 +273,70 @@ public class MainActivity extends Activity {
                 return "Failed: " + e.getMessage();
             }
         }
+    }
+
+    private void js(final String code) {
+        ui.post(() -> web.evaluateJavascript(code, null));
+    }
+
+    private void speakNow(String id, String text, float pitch, float rate, int vi) {
+        if (!ttsReady) { js("window.__spoke('" + id + "')"); return; }
+        try {
+            List<Voice> vs = new ArrayList<>();
+            String lang = Locale.getDefault().getLanguage();
+            for (Voice v : tts.getVoices()) {
+                if (v.getLocale().getLanguage().equals(lang) && !v.getFeatures().contains("notInstalled")) vs.add(v);
+            }
+            Collections.sort(vs, Comparator.comparing(Voice::getName));
+            if (!vs.isEmpty()) tts.setVoice(vs.get(Math.abs(vi) % vs.size()));
+        } catch (Exception ignored) { }
+        tts.setPitch(pitch);
+        tts.setSpeechRate(rate);
+        if (text.length() > 3900) text = text.substring(0, 3900);
+        if (tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, id) != TextToSpeech.SUCCESS) js("window.__spoke('" + id + "')");
+    }
+
+    private void startRec() {
+        if (rec != null) { rec.destroy(); rec = null; }
+        rec = SpeechRecognizer.createSpeechRecognizer(this);
+        rec.setRecognitionListener(new RecognitionListener() {
+            @Override public void onReadyForSpeech(Bundle b) { }
+            @Override public void onBeginningOfSpeech() { }
+            @Override public void onRmsChanged(float v) { }
+            @Override public void onBufferReceived(byte[] b) { }
+            @Override public void onEndOfSpeech() { }
+            @Override public void onEvent(int t, Bundle b) { }
+            @Override public void onError(int code) { js("window.__heardErr('" + code + "')"); }
+            @Override public void onPartialResults(Bundle b) {
+                ArrayList<String> r = b.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                if (r != null && !r.isEmpty()) js("window.__heard(" + JSONObject.quote(r.get(0)) + ",false)");
+            }
+            @Override public void onResults(Bundle b) {
+                ArrayList<String> r = b.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                if (r != null && !r.isEmpty()) js("window.__heard(" + JSONObject.quote(r.get(0)) + ",true)");
+                else js("window.__heardErr('7')");
+            }
+        });
+        Intent i = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+        i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+        i.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
+        i.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, getPackageName());
+        rec.startListening(i);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int code, String[] perms, int[] res) {
+        super.onRequestPermissionsResult(code, perms, res);
+        if (code != 7) return;
+        if (res.length > 0 && res[0] == PackageManager.PERMISSION_GRANTED) startRec();
+        else js("window.__heardErr('perm')");
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (rec != null) rec.destroy();
+        if (tts != null) { tts.stop(); tts.shutdown(); }
+        super.onDestroy();
     }
 
     private String doAction(JSONObject a) throws Exception {

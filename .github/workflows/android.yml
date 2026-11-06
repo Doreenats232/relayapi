@@ -36,7 +36,7 @@ jobs:
         if: failure()
         shell: bash
         run: |
-          MSG=$(grep -nE "error:|wrong|FAILED|Could not|AAPT|Caused by|Exception" "$RUNNER_TEMP/build.log" | head -25 | cut -c1-230 | sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g')
+          MSG=$(sed -n '/What went wrong/,/\* Try/p' "$RUNNER_TEMP/build.log" | head -20 | cut -c1-230 | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')
           echo "::error title=Gradle::$MSG"
       - name: Publish APK
         env:

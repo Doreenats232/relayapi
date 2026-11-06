@@ -48,6 +48,7 @@ const buildState = (raw, storageRaw, url) => {
   return enc(JSON.stringify({ cookies, origins: ls.length && origin ? [{ origin, localStorage: ls }] : [] }));
 };
 const app = express();
+app.use('/api/playground', express.json({ limit: '28mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use((req, res, next) => { res.set('Access-Control-Allow-Origin', '*'); res.set('Access-Control-Expose-Headers', 'X-Relay-Mode'); res.set('Access-Control-Allow-Headers', 'Authorization,Content-Type,X-Conversation-Id'); if (req.method === 'OPTIONS') return res.sendStatus(204); next(); });
 app.use(express.static(path.join(__dirname, 'public')));
@@ -236,7 +237,7 @@ function parseTools(text, tools) {
 const lastUserOf = ms => String(([...(ms || [])].reverse().find(m => m && m.role === 'user') || {}).content || '');
 const convOf = v => String(v || '').replace(/[^\w-]/g, '').slice(0, 64) || undefined;
 async function run(userId, keyId, body, res, o = {}) {
-  const t0 = Date.now(), prompt = toPrompt(body.messages, body.tools), info = {};
+  const t0 = Date.now(), prompt = toPrompt(body.messages, body.tools), info = { files: Array.isArray(body.files) ? body.files.slice(0, 3).filter(f => f && f.b64 && f.name) : [] };
   const p = o.provider || db.providers.find(p => p.userId === userId && p.name === body.model);
   const log = (ok, err) => { db.logs.push({ ts: Date.now(), userId, keyId, provider: p ? p.name : body.model, ms: Date.now() - t0, ok, err: err || '', promptLen: prompt.length, how: info.how || '' }); if (db.logs.length > 1500) db.logs.splice(0, 500); save(); };
   if (!p) return res.status(404).json({ error: { message: `Provider "${body.model}" not found. Add it in the dashboard.` } });

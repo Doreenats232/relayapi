@@ -102,6 +102,11 @@ textarea.in{resize:none;min-height:140px;line-height:1.5}
 .vp.muted{opacity:.3}.vp.muted small{text-decoration:line-through}
 .act{flex-wrap:wrap}
 #vask{display:flex;gap:8px;justify-content:center;margin-bottom:10px;flex-wrap:wrap}
+html[data-theme=light]{--ink:#f4f5fb;--s1:#ffffffcc;--s2:#ffffff;--s3:#eceef8;--ln:#d6daec;--tx:#14162a;--mu:#5d6385}
+html[data-theme=light] body{background:var(--ink)}
+html[data-theme=amoled]{--ink:#000;--s2:#0b0b10;--s3:#15151d;--ln:#22222e}
+html[data-theme=amoled] body{background:#000}
+.fch{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--ln);background:var(--s3);border-radius:99px;padding:5px 6px 5px 12px;font-size:13px;white-space:nowrap}.fch button{width:22px;height:22px;border-radius:50%;background:var(--s2);color:var(--mu)}
 .who{font-size:12px;margin:2px 8px -4px;font-weight:600}
 .vo{position:fixed;inset:0;z-index:40;display:flex;flex-direction:column;align-items:center;padding:calc(18px + env(safe-area-inset-top)) 20px calc(22px + env(safe-area-inset-bottom));background:radial-gradient(700px 520px at 50% 36%,#3a2c9acc,transparent 65%),#080913}
 .vtop{font-size:17px}.vst{color:var(--mu);margin-top:6px;min-height:24px}
@@ -128,6 +133,12 @@ textarea.in{resize:none;min-height:140px;line-height:1.5}
 <script>
 'use strict';
 const $=s=>document.querySelector(s), A=window.Android||null, FENCE='`'.repeat(3);
+const ACC={violet:['#8b7bff','#36d6ff'],ocean:['#3b82f6','#22d3ee'],sunset:['#ff9f6b','#f472b6'],forest:['#34d399','#a3e635']};
+function applyTheme(){const t=localStorage.theme||'dark',a=ACC[localStorage.accent]||ACC.violet,r=document.documentElement;
+  if(t==='dark')r.removeAttribute('data-theme');else r.setAttribute('data-theme',t);
+  r.style.setProperty('--a1',a[0]);r.style.setProperty('--a2',a[1]);
+  const m=document.querySelector('meta[name=theme-color]');if(m)m.content=t==='light'?'#f4f5fb':t==='amoled'?'#000000':'#0c0d14'}
+applyTheme();
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const ICON={
   back:'<svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>',
@@ -286,15 +297,19 @@ function md(t){
   const parts=esc(t).split(FENCE);
   return parts.map((s,i)=>i%2?`<pre><code>${s.replace(/^[a-z0-9+#-]*\n/i,'')}</code></pre>`:s.replace(/`([^`\n]+)`/g,'<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g,'<b>$1</b>')).join('');
 }
+Object.assign(ICON,{clip:'<svg viewBox="0 0 24 24"><path d="M21 12.5l-8.5 8.5a5 5 0 01-7-7L14 5.5a3.5 3.5 0 015 5l-8.6 8.6a2 2 0 01-2.8-2.8l7.8-7.8"/></svg>'});
+const SCREEN=new Set(['read_screen','tap','type','scroll','back','home']);
+const ctlLive=()=>{try{return !!(A&&A.ctlOn&&A.ctlOn()&&A.a11yConnected&&A.a11yConnected())}catch{return false}};
+const SCREEN_RULES='Screen control is ON, so you can also use the phone screen. Extra actions: read_screen{} reads the text currently on screen (the user presses Run and the text is sent back to you), tap{text} taps a button or item by its visible text, type{text} types into the focused or first text box, scroll{direction: up or down}, back{}, home{}. Work one step at a time and use read_screen after each tap to see what changed. Never type passwords. Before anything that sends, pays, deletes or posts, say exactly what you are about to do and wait for the user to confirm.';
 const actionsOf=t=>extract(t).acts;
-const label=a=>({open_app:'Open '+(a.name||'app'),open_url:'Open '+(a.url||'link'),dial:'Call '+(a.name||a.number||''),sms:'Text '+(a.name||a.number||''),email:'Email '+(a.to||''),search:'Search “'+(a.query||'')+'”',map:'Map “'+(a.query||'')+'”',alarm:'Alarm '+String(a.hour||0).padStart(2,'0')+':'+String(a.minute||0).padStart(2,'0'),timer:'Timer '+(a.seconds||0)+'s',settings:'Open '+(a.page||'')+' settings',share:'Share text'}[a.action]||a.action);
+const label=a=>({open_app:'Open '+(a.name||'app'),open_url:'Open '+(a.url||'link'),dial:'Call '+(a.name||a.number||''),sms:'Text '+(a.name||a.number||''),email:'Email '+(a.to||''),search:'Search “'+(a.query||'')+'”',map:'Map “'+(a.query||'')+'”',alarm:'Alarm '+String(a.hour||0).padStart(2,'0')+':'+String(a.minute||0).padStart(2,'0'),timer:'Timer '+(a.seconds||0)+'s',settings:'Open '+(a.page||'')+' settings',share:'Share text',read_screen:'Read the screen',tap:'Tap “'+(a.text||'')+'”',type:'Type “'+String(a.text||'').slice(0,30)+'”',scroll:'Scroll '+(a.direction||'down'),back:'Go back',home:'Go home'}[a.action]||a.action);
 function runAction(a){try{return String(A.phone(JSON.stringify(a)))}catch(e){return 'error: '+e.message}}
 
 async function chatView(pn){
   let msgs=load(pn);cur=pn;const spOn=()=>localStorage['tts:'+pn]==='1';
   $('#app').innerHTML=`<div class="top"><button class="ib" id="bk" aria-label="Back">${ICON.back}</button><div class="av" style="width:40px;height:40px;border-radius:12px">${esc(pn[0].toUpperCase())}</div><h1 style="font-size:19px;flex:1;min-width:0">${esc(pn)}</h1><button class="ib" id="sp" aria-label="Read replies aloud"></button><button class="ib" id="ex" aria-label="Export chat">${ICON.share}</button><button class="ib" id="nw" aria-label="New chat">${ICON.new}</button></div>
   <div class="chat" id="chat"></div>
-  <div class="composer"><button class="ib" id="mc" aria-label="Speak">${ICON.mic}</button><textarea id="ta" rows="1" placeholder="Message ${esc(pn)}"></textarea><button class="send" id="sd" aria-label="Send">${ICON.send}</button></div>`;
+  <div class="rbar" id="fl"></div><div class="composer"><button class="ib" id="at" aria-label="Attach a file">${ICON.clip}</button><input type="file" id="fi" hidden multiple accept="image/*,.pdf,.txt,.md,.csv,.json,.doc,.docx"><button class="ib" id="mc" aria-label="Speak">${ICON.mic}</button><textarea id="ta" rows="1" placeholder="Message ${esc(pn)}"></textarea><button class="send" id="sd" aria-label="Send">${ICON.send}</button></div>`;
   const chat=$('#chat'),ta=$('#ta');
   $('#bk').onclick=()=>location.hash='#/';
   $('#nw').onclick=async()=>{if(busy)return;if(!(await ask('Start a new chat with '+pn+'? This clears the conversation.','New chat')))return;
@@ -307,23 +322,31 @@ async function chatView(pn){
     if(m.err&&authLike(m.content))h+=`<div class="act"><span>${esc(cap(pn))} may need signing in again</span><button class="btn sm" data-go="1">Sign in</button></div>`;
     if(m.role==='assistant'&&!m.pending&&!m.err&&phoneOn()){
       actionsOf(m.content).forEach((a,k)=>{const d=(m.done||{})[k];
-        h+=`<div class="act ${d?'done':''}"><span>${esc(d?label(a)+' — '+d:label(a))}</span>${d?'':`<button class="btn sm" data-i="${i}" data-k="${k}">Run</button>`}</div>`});
+        h+=`<div class="act ${d?'done':''}"><span>${esc(d?label(a)+' — '+String(d).slice(0,80):label(a))}</span>${d?'':`<button class="btn sm" data-i="${i}" data-k="${k}">Run</button>`}</div>`});
     }
     return h;
   }
   function draw(){
     chat.innerHTML=msgs.length?msgs.map(bubble).join(''):`<div class="empty">${orb()}<b style="color:var(--tx);font-size:18px">Talk to ${esc(pn)}</b><p>This chat stays open on ${esc(pn)}, so it remembers the conversation.</p></div>`;
     chat.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>location.href='/#/providers');
-    chat.querySelectorAll('.act button:not([data-go])').forEach(b=>b.onclick=()=>{const m=msgs[b.dataset.i],a=actionsOf(m.content)[b.dataset.k];m.done=m.done||{};m.done[b.dataset.k]=runAction(a);store(pn,msgs);draw()});
+    chat.querySelectorAll('.act button:not([data-go])').forEach(b=>b.onclick=()=>{const m=msgs[b.dataset.i],a=actionsOf(m.content)[b.dataset.k];m.done=m.done||{};const res=runAction(a);m.done[b.dataset.k]=res;store(pn,msgs);draw();if(a.action==='read_screen'&&!busy&&!/^(Screen control|Accessibility|Could not)/.test(res)){ta.value='Here is what the screen shows:\n'+res;send()}});
     chat.scrollTop=chat.scrollHeight;
   }
+  let att=[];
+  const drawFiles=()=>{$('#fl').innerHTML=att.map((f,i)=>`<span class="fch">${esc(f.name.slice(0,24))}<button data-x="${i}" aria-label="Remove">×</button></span>`).join('');
+    $('#fl').querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>{att.splice(+b.dataset.x,1);drawFiles()})};
+  $('#at').onclick=()=>$('#fi').click();
+  $('#fi').onchange=async e=>{for(const f of e.target.files){if(att.length>=3){toast('Up to 3 files per message');break}if(f.size>5*1024*1024){toast(f.name+' is over 5 MB');continue}
+    try{const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(',')[1]||'');r.onerror=rej;r.readAsDataURL(f)});att.push({name:f.name,type:f.type||'application/octet-stream',b64})}catch{toast('Could not read '+f.name)}}
+    e.target.value='';drawFiles()};
   async function send(){
-    const text=ta.value.trim();if(!text||busy)return;
+    let text=ta.value.trim();if(!text&&att.length)text='Please look at the attached file'+(att.length>1?'s':'')+'.';if(!text||busy)return;
+    const sendFiles=att;att=[];drawFiles();
     ta.value='';ta.style.height='auto';busy=true;$('#sd').disabled=true;Voice.stopSpeak();askNotif();
-    msgs.push({role:'user',content:text});const me={role:'assistant',content:'',pending:true};msgs.push(me);draw();
+    msgs.push({role:'user',content:text+(sendFiles.length?'\n📎 '+sendFiles.map(f=>f.name).join(', '):'')});const me={role:'assistant',content:'',pending:true};msgs.push(me);draw();
     try{
       const hist=msgs.filter(m=>!m.pending&&!m.err).map(m=>({role:m.role,content:m.content})).slice(-40);
-      const sys=sysPrompt(pn),body={model:pn,messages:(sys?[{role:'system',content:sys}]:[]).concat(hist),stream:true};
+      const sys=sysPrompt(pn),body={model:pn,messages:(sys?[{role:'system',content:sys}]:[]).concat(hist),stream:true};if(sendFiles.length)body.files=sendFiles;
       const r=await fetch('/api/playground',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+tok},body:JSON.stringify(body)});
       if(r.status===401){logout(true);return}
       if(!(r.headers.get('content-type')||'').includes('event-stream')){const j=await r.json().catch(()=>({}));throw new Error((j.error&&(j.error.message||j.error))||'Error '+r.status)}
@@ -339,7 +362,7 @@ async function chatView(pn){
     busy=false;store(pn,msgs);
     if(spOn()&&!me.err&&me.content)Voice.speak(extract(me.content).text,{p:1,r:1,idx:0});
     if(cur===pn){const sd=$('#sd');if(sd)sd.disabled=false;draw();
-      if(phoneOn()&&!askFirst()&&!me.err){const as=actionsOf(me.content);me.done={};as.forEach((a,k)=>me.done[k]=runAction(a));store(pn,msgs);draw()}}
+      if(phoneOn()&&!askFirst()&&!me.err){const as=actionsOf(me.content);me.done={};as.forEach((a,k)=>{if(!SCREEN.has(a.action))me.done[k]=runAction(a)});store(pn,msgs);draw()}}
   }
   $('#sd').onclick=send;
   const spi=()=>{$('#sp').innerHTML=spOn()?ICON.speaker:ICON.speakeroff};spi();
@@ -358,7 +381,7 @@ function sysPrompt(pn){
   const all=(localStorage['rr:all']||'').trim(),own=(localStorage['rr:'+pn]||'').trim(),s=[];
   if(all)s.push('Rules from the user (always follow them):\n'+all);
   if(own)s.push('Extra rules for this assistant:\n'+own);
-  if(phoneOn())s.push(PHONE_RULES);
+  if(phoneOn()){s.push(PHONE_RULES);if(ctlLive())s.push(SCREEN_RULES)}
   return s.join('\n\n');
 }
 
@@ -367,10 +390,15 @@ function settingsView(){
   const sw=(id,on)=>`<span class="sw ${on?'on':''}" id="${id}"></span>`;
   $('#app').innerHTML=`<div class="top"><button class="ib" id="bk" aria-label="Back">${ICON.back}</button><h1>Settings</h1></div><div class="scroll">
   <div class="card" style="display:flex;gap:12px;align-items:center">${localStorage.pic?`<img src="${esc(localStorage.pic)}" referrerpolicy="no-referrer" style="width:46px;height:46px;border-radius:50%">`:`<div class="av" style="border-radius:50%">${esc((email||'?')[0].toUpperCase())}</div>`}<div style="min-width:0"><b>Signed in</b><div class="mu" style="overflow:hidden;text-overflow:ellipsis">${esc(email)}</div></div></div>
+  <div class="sec">Appearance</div><div class="card" style="padding:14px 16px">
+   <div class="mu" style="font-size:13px;margin-bottom:8px">Theme</div><div class="chips" id="thm">${[['dark','Dark'],['light','Light'],['amoled','Black']].map(t=>`<button class="chip ${(localStorage.theme||'dark')===t[0]?'on':''}" data-t="${t[0]}">${t[1]}</button>`).join('')}</div>
+   <div class="mu" style="font-size:13px;margin-bottom:8px">Colour</div><div class="chips" id="acc" style="margin:0">${Object.keys(ACC).map(k=>`<button class="chip ${(localStorage.accent||'violet')===k?'on':''}" data-a="${k}">${cap(k)}</button>`).join('')}</div>
+  </div>
   <div class="sec">Behaviour</div><div class="card" style="padding:4px 16px">
    <button class="row" id="rr"><div class="m"><b>Rule room</b><small>Write extra rules every AI must follow</small></div>›</button>
    ${A?`<button class="row" id="pcb"><div class="m"><b>Let the AI control my phone</b><small>Open apps, set alarms, call, text, search</small></div>${sw('pc',phoneOn())}</button>
    <button class="row" id="pab"><div class="m"><b>Ask before it acts</b><small>Show a Run button for each action</small></div>${sw('pa',askFirst())}</button>
+   <button class="row" id="scb"><div class="m"><b>Screen control (accessibility)</b><small>Lets the AI read the screen and tap, type and scroll in other apps. Every step needs your Run tap. What it reads is sent to the AI site.</small></div>${sw('sc',ctlLive())}</button>
    <button class="row" id="lkb"><div class="m"><b>Lock the app</b><small>Ask for your phone PIN, pattern or fingerprint</small></div>${sw('lk',!!A.lockOn())}</button>`:''}
   </div>
   <div class="sec">Accounts</div><div class="card" style="padding:4px 16px">
@@ -385,6 +413,11 @@ function settingsView(){
   </div></div>`;
   $('#bk').onclick=()=>location.hash='#/';$('#rr').onclick=()=>location.hash='#/rules';
   const tg=(btn,id,key,def)=>{const b=$(btn);if(!b)return;b.onclick=()=>{const on=localStorage[key]===undefined?def:localStorage[key]!=='0';localStorage[key]=on?'0':'1';$(id).classList.toggle('on',!on)}};
+  document.querySelectorAll('#thm .chip').forEach(c=>c.onclick=()=>{localStorage.theme=c.dataset.t;applyTheme();settingsView()});
+  document.querySelectorAll('#acc .chip').forEach(c=>c.onclick=()=>{localStorage.accent=c.dataset.a;applyTheme();settingsView()});
+  if($('#scb'))$('#scb').onclick=async()=>{const on=!ctlLive();
+    if(on&&!A.a11yConnected()){if(await ask('First turn on “Relay screen control” in Android Accessibility settings. Android will show a warning, and Relay only acts when you press Run on an action.','Open settings')){A.setCtl(true);A.openA11y()}return}
+    A.setCtl(on);$('#sc').classList.toggle('on',on)};
   tg('#pcb','#pc','pc',true);tg('#pab','#pa','pcask',true);
   $('#dash').onclick=()=>location.href='/#/providers';$('#keys').onclick=()=>location.href='/#/keys';
   if($('#srv'))$('#srv').onclick=()=>A.setServer();
@@ -822,6 +855,8 @@ async function checkUpdate(){
   route();
   if(A&&A.version&&Date.now()-(+localStorage.updchk||0)>864e5){localStorage.updchk=Date.now();checkUpdate().then(u=>{if(u)toast('A new app version is ready. See Settings.')})}
 })();
+window.__go=()=>{try{const g=A&&A.takeGo&&A.takeGo();if(!g||!tok)return;localStorage.tab=g==='rooms'?'rooms':'ais';if(location.hash==='#/'||!location.hash)route();else location.hash='#/'}catch{}};
+setTimeout(()=>window.__go&&window.__go(),500);
 </script>
 </body>
 </html>

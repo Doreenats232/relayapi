@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="a11y_label">Relay screen control</string>
+    <string name="a11y_desc">Lets the Relay assistant read the screen and tap, type and scroll in other apps. It only acts when you press Run on an action and the switch in Relay settings is on.</string>
+</resources>

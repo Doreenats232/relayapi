@@ -36,6 +36,8 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.JavascriptInterface;
+import android.webkit.ValueCallback;
+import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
@@ -73,6 +75,8 @@ public class MainActivity extends Activity {
     private boolean lockOn = false, unlocked = false, authing = false;
     private long pausedAt = 0;
     private boolean fg = true;
+    private ValueCallback<Uri[]> filePathCb;
+    private String pendingGo = null;
     private LinearLayout lockView;
     private final Handler ui = new Handler(Looper.getMainLooper());
 
@@ -82,6 +86,7 @@ public class MainActivity extends Activity {
         sp = getSharedPreferences("relay", MODE_PRIVATE);
         base = sp.getString("server", "");
         lockOn = sp.getBoolean("lock", false);
+        RelayAccessibility.ctlOn = sp.getBoolean("ctl", false);
 
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(INK);
@@ -97,6 +102,20 @@ public class MainActivity extends Activity {
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         s.setUserAgentString(s.getUserAgentString() + " RelayApp/1.0");
         web.addJavascriptInterface(new Bridge(), "Android");
+        web.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onShowFileChooser(WebView w, ValueCallback<Uri[]> cb, FileChooserParams p) {
+                if (filePathCb != null) filePathCb.onReceiveValue(null);
+                filePathCb = cb;
+                try {
+                    startActivityForResult(p.createIntent(), 55);
+                } catch (Exception e) {
+                    filePathCb = null;
+                    return false;
+                }
+                return true;
+            }
+        });
         web.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
@@ -178,6 +197,11 @@ public class MainActivity extends Activity {
     private void handleIntent(Intent i) {
         Uri d = i == null ? null : i.getData();
         if (d != null && "relayapp".equals(d.getScheme())) pendingCode = d.getQueryParameter("code");
+        if (i != null && i.getStringExtra("go") != null) {
+            pendingGo = i.getStringExtra("go");
+            i.removeExtra("go");
+            if (web != null) js("window.__go&&window.__go()");
+        }
     }
 
     private void showSplash(String msg, boolean problem) {
@@ -310,6 +334,21 @@ public class MainActivity extends Activity {
             ui.post(() -> { if (tts != null) tts.stop(); });
         }
 
+        @JavascriptInterface public boolean ctlOn() { return RelayAccessibility.ctlOn; }
+
+        @JavascriptInterface public void setCtl(boolean on) {
+            RelayAccessibility.ctlOn = on;
+            sp.edit().putBoolean("ctl", on).apply();
+        }
+
+        @JavascriptInterface public boolean a11yConnected() { return RelayAccessibility.inst != null; }
+
+        @JavascriptInterface public void openA11y() {
+            ui.post(() -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)));
+        }
+
+        @JavascriptInterface public String takeGo() { String g = pendingGo; pendingGo = null; return g == null ? "" : g; }
+
         @JavascriptInterface public void askNotifyPerm() {
             ui.post(() -> {
                 if (android.os.Build.VERSION.SDK_INT >= 33
@@ -390,6 +429,10 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
+        if (req == 55) {
+            if (filePathCb != null) { filePathCb.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(res, data)); filePathCb = null; }
+            return;
+        }
         if (req == 9) {
             authing = false;
             if (res == RESULT_OK) {
@@ -577,6 +620,12 @@ public class MainActivity extends Activity {
                 i.putExtra(Intent.EXTRA_TEXT, a.optString("text"));
                 launch(Intent.createChooser(i, "Share"));
                 return "Share sheet opened";
+            case "read_screen": return RelayAccessibility.read();
+            case "tap": return RelayAccessibility.tap(a.optString("text"));
+            case "type": return RelayAccessibility.type(a.optString("text"));
+            case "scroll": return RelayAccessibility.scroll(a.optString("direction"));
+            case "back": return RelayAccessibility.global("back");
+            case "home": return RelayAccessibility.global("home");
             default:
                 return "Unknown action: " + act;
         }

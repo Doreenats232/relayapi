@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/w_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_bg"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:padding="14dp">
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="✦"
+        android:textColor="#8B7BFF"
+        android:textSize="22sp" />
+    <TextView
+        android:id="@+id/w_text"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:layout_weight="1"
+        android:text="Ask Relay anything…"
+        android:textColor="#ECEEFB"
+        android:textSize="16sp" />
+    <TextView
+        android:id="@+id/w_rooms"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:padding="8dp"
+        android:text="Rooms"
+        android:textColor="#36D6FF"
+        android:textSize="14sp" />
+</LinearLayout>

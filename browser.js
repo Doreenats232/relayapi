@@ -217,6 +217,15 @@ async function doAsk(p, prompt, dbg, conv, retry = true, info = {}) {
     await shot(warm ? '1. Open chat' : '1. Page ready');
     selInfo = await box.evaluate(e => e.tagName.toLowerCase() + (e.id ? '#' + e.id : '') + (e.className && typeof e.className == 'string' ? '.' + e.className.trim().split(/\s+/).slice(0, 2).join('.') : '') + (e.placeholder ? ' placeholder="' + e.placeholder + '"' : ''));
     step('Text box found', true, `using ${selInfo}`);
+    if (info && info.files && info.files.length) { // files the user attached in the app: put them in the site's own upload input before typing
+      try {
+        const fi = page.locator('input[type="file"]');
+        if (!(await fi.count())) throw new Error('no upload button found');
+        await fi.last().setInputFiles(info.files.map(f => ({ name: String(f.name).replace(/[^\w.\- ]/g, '_').slice(0, 80), mimeType: f.type || 'application/octet-stream', buffer: Buffer.from(String(f.b64), 'base64') })), { timeout: 15000 });
+        step('Files attached', true, info.files.map(f => f.name).join(', '));
+        await page.waitForTimeout(3500);
+      } catch (e) { throw new Error("This site's chat box did not accept the file through the relay (" + String(e.message).split('\n')[0] + '). Try a different site or send text only.'); }
+    }
     const text = warm ? lastMsg : full;
     let rsel = cl(p.responseSel), hinted = false;
     if (!rsel) { try { rsel = HINTS[new URL(p.url).hostname] || ''; hinted = !!rsel; } catch {} }

@@ -91,6 +91,17 @@ textarea.in{resize:none;min-height:140px;line-height:1.5}
 .toast{position:fixed;left:50%;bottom:calc(90px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--s3);border:1px solid var(--ln);padding:10px 16px;border-radius:99px;z-index:30;font-size:14px}
 .tabs{display:flex;gap:8px;padding:0 18px 10px}
 .rbar{display:flex;gap:8px;overflow-x:auto;padding:6px 14px 0}.rbar .chip{white-space:nowrap}
+.lgw{position:relative;display:inline-grid;place-items:center;border-radius:30%;background:var(--s3);font-weight:700;flex:none;overflow:hidden;vertical-align:middle}
+.lgw img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#fff;padding:2px;box-sizing:border-box}
+.lgs{display:flex;flex:none}.lgs .lgw{border:2px solid var(--s2,var(--s3));margin-left:-8px}.lgs .lgw:first-child{margin-left:0}
+.who{display:flex;align-items:center;gap:6px}
+.mchip{display:inline-flex;align-items:center;border:1px solid var(--ln);background:var(--s3);border-radius:99px;flex:none}
+.mchip .chip{border:0;background:none;display:inline-flex;align-items:center;gap:6px;padding:6px 4px 6px 10px}
+.mchip .mt{width:34px;height:32px;display:grid;place-items:center;color:var(--mu);background:none;border:0}.mchip .mt svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.mchip.off{opacity:.55}.mchip.off .chip{text-decoration:line-through}.mchip.off .mt{color:var(--bad)}
+.vp.muted{opacity:.3}.vp.muted small{text-decoration:line-through}
+.act{flex-wrap:wrap}
+#vask{display:flex;gap:8px;justify-content:center;margin-bottom:10px;flex-wrap:wrap}
 .who{font-size:12px;margin:2px 8px -4px;font-weight:600}
 .vo{position:fixed;inset:0;z-index:40;display:flex;flex-direction:column;align-items:center;padding:calc(18px + env(safe-area-inset-top)) 20px calc(22px + env(safe-area-inset-bottom));background:radial-gradient(700px 520px at 50% 36%,#3a2c9acc,transparent 65%),#080913}
 .vtop{font-size:17px}.vst{color:var(--mu);margin-top:6px;min-height:24px}
@@ -227,7 +238,7 @@ async function listView(){
   if(!providers.length){$('#list').innerHTML=`<div class="empty">${orb()}<b style="color:var(--tx);font-size:18px">No AIs yet</b><p>Add ChatGPT, Gemini, DeepSeek or any chat website, then talk to it from here.</p><button class="btn" id="a2">Add your first AI</button></div>`;$('#a2').onclick=addSheet;return}
   $('#list').innerHTML=providers.map(p=>{let h='';try{h=new URL(p.url).host}catch{}
     const n=lastText(p.name);
-    return `<button class="card prov" data-n="${esc(p.name)}"><div class="av">${esc(p.name[0].toUpperCase())}</div><div class="m"><b>${esc(p.name)}</b><small>${esc(n||h)}</small></div><span class="dot ${p.hasSession?'on':''}" title="${p.hasSession?'Signed in':'Not signed in'}"></span></button>`}).join('')
+    return `<button class="card prov" data-n="${esc(p.name)}"><div class="av">${logo(p.name,34)}</div><div class="m"><b>${esc(p.name)}</b><small>${esc(n||h)}</small></div><span class="dot ${p.hasSession?'on':''}" title="${p.hasSession?'Signed in':'Not signed in'}"></span></button>`}).join('')
    +`<p class="mu" style="font-size:13px;text-align:center;margin-top:18px">Green dot: signed in to that site. Open Settings → Sign in to a site if a dot is grey.</p>`;
   document.querySelectorAll('.prov').forEach(b=>b.onclick=()=>location.hash='#/chat/'+encodeURIComponent(b.dataset.n));
 }
@@ -286,13 +297,13 @@ async function chatView(pn){
   <div class="composer"><button class="ib" id="mc" aria-label="Speak">${ICON.mic}</button><textarea id="ta" rows="1" placeholder="Message ${esc(pn)}"></textarea><button class="send" id="sd" aria-label="Send">${ICON.send}</button></div>`;
   const chat=$('#chat'),ta=$('#ta');
   $('#bk').onclick=()=>location.hash='#/';
-  $('#nw').onclick=async()=>{if(busy)return;if(!confirm('Start a new chat with '+pn+'? This clears the conversation.'))return;
+  $('#nw').onclick=async()=>{if(busy)return;if(!(await ask('Start a new chat with '+pn+'? This clears the conversation.','New chat')))return;
     try{await api('/api/playground/reset','POST',{model:pn})}catch(e){toast(e.message);return}msgs=[];store(pn,msgs);draw()};
   ta.oninput=()=>{ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,140)+'px'};
 
   function bubble(m,i){
-    if(m.pending&&!m.content)return `<div class="msg assistant"><span class="typing"><i></i><i></i><i></i></span></div>`;
-    let h=`<div class="msg ${m.role}${m.err?' err':''}" data-i="${i}">${m.role==='assistant'&&!m.err?md(m.content):esc(m.content)}</div>`;
+    if(m.pending&&!m.content)return `<div class="who" style="color:var(--mu)">${logo(pn,18)}<span>${esc(cap(pn))}</span></div><div class="msg assistant"><span class="typing"><i></i><i></i><i></i></span></div>`;
+    let h=(m.role==='assistant'&&!m.err?`<div class="who" style="color:var(--mu)">${logo(pn,18)}<span>${esc(cap(pn))}</span></div>`:'')+`<div class="msg ${m.role}${m.err?' err':''}" data-i="${i}">${m.role==='assistant'&&!m.err?md(m.content):esc(m.content)}</div>`;
     if(m.err&&authLike(m.content))h+=`<div class="act"><span>${esc(cap(pn))} may need signing in again</span><button class="btn sm" data-go="1">Sign in</button></div>`;
     if(m.role==='assistant'&&!m.pending&&!m.err&&phoneOn()){
       actionsOf(m.content).forEach((a,k)=>{const d=(m.done||{})[k];
@@ -381,7 +392,7 @@ function settingsView(){
   if($('#upd'))checkUpdate().then(u=>{const el=$('#vs');if(!el)return;
     if(u){el.textContent='Update available (build '+u.latest+'). Tap to download.';$('#upd').onclick=()=>A.openExternalUrl(u.url)}
     else el.textContent=u===false?'You have the latest version':'Could not check for updates'});
-  $('#rl').onclick=()=>location.reload();$('#lo').onclick=()=>{if(confirm('Sign out of Relay?'))logout()};
+  $('#rl').onclick=()=>location.reload();$('#lo').onclick=()=>{ask('Sign out of Relay?','Sign out').then(y=>{if(y)logout()})};
 }
 async function rulesView(){
   try{if(!providers.length)providers=await api('/api/providers')}catch{}
@@ -399,6 +410,14 @@ async function rulesView(){
   $('#sv').onclick=()=>{const v=$('#rt').value.trim();if(v)localStorage[keyOf()]=v;else localStorage.removeItem(keyOf());toast('Rules saved')};
 }
 
+/* in-app confirm: the Android WebView ignores window.confirm(), which is why delete did nothing */
+function ask(msg,okLabel){return new Promise(res=>{const v=sheet(`<h2 style="font-size:18px">${esc(msg)}</h2><div style="display:flex;gap:10px;margin-top:14px"><button class="btn alt" id="ano">Cancel</button><button class="btn" id="ayes">${esc(okLabel||'OK')}</button></div>`);
+  let done=false;const fin=y=>{if(done)return;done=true;v.remove();res(y)};
+  v.querySelector('#ano').onclick=()=>fin(false);v.querySelector('#ayes').onclick=()=>fin(true);
+  new MutationObserver((m,o)=>{if(!document.body.contains(v)){o.disconnect();fin(false)}}).observe(document.body,{childList:true})})}
+/* provider logos: the site's own icon, letter badge underneath as fallback */
+function logo(n,size,color){size=size||22;let h='';const p=(providers||[]).find(x=>x.name===n);try{h=new URL(p.url).hostname}catch{}
+  return `<span class="lgw" style="width:${size}px;height:${size}px;font-size:${Math.round(size*.5)}px;color:${color||'var(--a2)'}">${esc((n||'?')[0].toUpperCase())}${h?`<img src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(h)}&sz=128" alt="" onerror="this.remove()">`:''}</span>`}
 /* ---------- AI rooms: a meeting where the AIs and you talk ---------- */
 Object.assign(ICON,{
   mic:'<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/></svg>',
@@ -417,6 +436,13 @@ const rtOf=id=>RTS[id]||(RTS[id]={id,run:0,active:0,lock:Promise.resolve(),typin
 const colorOf=(room,n)=>COLORS[Math.max(0,room.members.indexOf(n))%COLORS.length];
 const voiceOf=(room,n)=>{const i=Math.max(0,room.members.indexOf(n));return Object.assign({idx:i},VPRESETS[i%VPRESETS.length])};
 const inRoom=id=>location.hash==='#/room/'+id;
+const isMuted=(room,n)=>(room.muted||[]).includes(n);
+const activeNames=room=>room.members.filter(n=>!isMuted(room,n));
+function toggleMute(R,n){const room=getRoom(R.id);room.muted=room.muted||[];
+  if(isMuted(room,n)){room.muted=room.muted.filter(x=>x!==n);toast(cap(n)+' can talk again')}
+  else{room.muted.push(n);toast(cap(n)+' is muted');if(R.typing===n)try{R.ctl&&R.ctl.abort()}catch{};if(R.speaking===n)Voice.stopSpeak()}
+  saveRoom(room);drawBar(R);refresh(R)}
+function begin(R){const my=++R.run;Voice.stopSpeak();try{R.ctl&&R.ctl.abort()}catch{};return my}
 
 /* voice layer: Android speech services inside the app, the browser's own otherwise */
 const SRC=window.SpeechRecognition||window.webkitSpeechRecognition;
@@ -444,8 +470,8 @@ window.__heardErr=c=>{const L=Voice.L;if(!L)return;Voice.L=null;L.rej(String(c))
 window.__spoke=id=>{const f=Voice.pend[id];if(f){delete Voice.pend[id];f()}};
 
 /* talking to one AI of the room (its own chat per room, never mixed with its solo chat) */
-async function streamPlayground(body,onDelta){
-  const r=await fetch('/api/playground',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+tok},body:JSON.stringify(body)});
+async function streamPlayground(body,onDelta,signal){
+  const r=await fetch('/api/playground',{signal,method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+tok},body:JSON.stringify(body)});
   if(r.status===401){logout(true);throw new Error('Signed out')}
   if(!(r.headers.get('content-type')||'').includes('event-stream')){const j=await r.json().catch(()=>({}));throw new Error((j.error&&(j.error.message||j.error))||'Error '+r.status)}
   const rd=r.body.getReader(),dec=new TextDecoder();let buf='',all='';
@@ -457,15 +483,15 @@ async function streamPlayground(body,onDelta){
   return all;
 }
 function roomSys(room,name){
-  const others=room.members.filter(m=>m!==name).map(cap).join(', ');
+  const others=activeNames(room).filter(m=>m!==name).map(cap).join(', ');
   const rules=[(localStorage['rr:all']||'').trim(),(localStorage['rr:'+name]||'').trim(),room.topic].filter(Boolean).join('\n');
-  return 'You are '+cap(name)+', taking part in a live group meeting. Present: the User (a person) and these AIs: '+others+'. Every message you receive is labelled with its speaker, like "[User]: ..." or "[Gemini]: ...". Rules: (1) Reply only as '+cap(name)+', in your own voice. Never write lines for anyone else and never start with a label. (2) Keep it short: one to three sentences, unless the User asks for detail. (3) Talk with the others by name: build on, question or politely disagree with what they said, and do not repeat points already made. (4) Answer the User directly when they speak to you or to everyone. (5) If you have nothing useful to add, reply with exactly PASS. (6) Plain spoken sentences only: no markdown, lists, emojis or links, because your words may be read aloud.'+(rules?'\nNotes and rules from the User for this meeting:\n'+rules:'');
+  return 'You are '+cap(name)+', taking part in a live group meeting. Present: the User (a person) and these AIs: '+others+'. Every message you receive is labelled with its speaker, like "[User]: ..." or "[Gemini]: ...". Rules: (1) Reply only as '+cap(name)+', in your own voice. Never write lines for anyone else and never start with a label. (2) Keep it short: one to three sentences, unless the User asks for detail. (3) Talk with the others by name: build on, question or politely disagree with what they said, and do not repeat points already made. (4) Answer the User directly when they speak to you or to everyone. (5) If you have nothing useful to add, reply with exactly PASS. (6) Plain spoken sentences only: no markdown, lists, emojis or links, because your words may be read aloud. (7) You can tag another AI with @name when you want to ask them something. You may NOT start a back-and-forth with the other AIs on your own: if you want to talk with them while the User is quiet, finish your reply with one last line in exactly this form: ASK_USER: @name short reason. The User has to approve it first. Use this only when it is really worthwhile.'+(rules?'\nNotes and rules from the User for this meeting:\n'+rules:'');
 }
 function historyFor(room,name){
   const h=[];
   for(const m of room.msgs){
     if(m.who==='system')continue;
-    if(m.who===name)h.push({role:'assistant',content:m.pass?'PASS':m.content});
+    if(m.who===name)h.push({role:'assistant',content:m.pass?'PASS':(m.content+(m.ask?'\nASK_USER: '+m.ask.reason:'')).trim()});
     else if(!m.pass)h.push({role:'user',content:'['+(m.who==='user'?'User':cap(m.who))+']: '+m.content});
   }
   return h.slice(-40);
@@ -478,63 +504,116 @@ function cleanReply(t,name,room){
   return t.replace(/\*\*|__|`/g,'').trim();
 }
 /* one generation at a time across the whole room: this is what stops the AIs colliding */
-function generate(R,name){const job=R.lock.then(()=>doGen(R,name));R.lock=job.catch(()=>{});return job}
-async function doGen(R,name){
+function generate(R,name,noAsk){const job=R.lock.then(()=>doGen(R,name,noAsk));R.lock=job.catch(()=>{});return job}
+async function doGen(R,name,noAsk){
   const room=getRoom(R.id),hist=historyFor(room,name);
+  if(isMuted(room,name))return {skip:true};
   if(!hist.length||hist[hist.length-1].role!=='user')return {skip:true};
-  R.typing=name;refresh(R);
+  R.typing=name;refresh(R);R.ctl=new AbortController();
   try{
-    const text=await streamPlayground({model:name,room:room.id,messages:[{role:'system',content:roomSys(room,name)}].concat(hist),stream:true});
-    R.typing=null;const t=cleanReply(text,name,room);
-    if(!t)return {err:'No reply came back. Check that this AI is still signed in.'};
-    if(/^PASS\b/i.test(t))return {pass:true};
-    return {text:t};
-  }catch(e){R.typing=null;return {err:e.message}}
+    const text=await streamPlayground({model:name,room:room.id,messages:[{role:'system',content:roomSys(room,name)}].concat(hist),stream:true},null,R.ctl.signal);
+    R.typing=null;
+    if(isMuted(getRoom(R.id),name))return {skip:true};
+    let t=cleanReply(text,name,room),ask=null;
+    const mm=t.match(/(?:^|\n)[ \t]*ASK_USER[ \t]*:[ \t]*([^\n]+?)[ \t]*$/i);
+    if(mm){t=t.slice(0,mm.index).trim();ask=mm[1].trim()}
+    if(ask&&(noAsk||getRoom(R.id).msgs.some(m=>m.ask&&m.ask.status==='pending')))ask=null;
+    if(!t&&!ask)return {err:'No reply came back. Check that this AI is still signed in.'};
+    if(!ask&&/^PASS\b/i.test(t))return {pass:true};
+    return {text:t,ask};
+  }catch(e){R.typing=null;if(e&&e.name==='AbortError')return {skip:true};return {err:e.message}}
 }
 async function speakAs(R,n,text){
   const room=getRoom(R.id);R.speaking=n;if(R.vm)R.vm.caption=cap(n)+': '+text;refresh(R);
   await Voice.speak(text,voiceOf(room,n));
   if(R.speaking===n)R.speaking=null;refresh(R);
 }
-async function runTurns(R,my,order,rounds,opts){
+function mkAsk(room,n,reason){
+  const low=reason.toLowerCase(),to=room.members.filter(m=>m!==n&&new RegExp('(^|[^a-z0-9])@?'+m.replace(/[^a-z0-9]/gi,'.')+'([^a-z0-9]|$)').test(low));
+  return {reason:reason.replace(/@/g,''),to,status:'pending'}}
+function pushMsg(R,room,n,res){
+  const m={who:n,content:res.text||''};if(res.ask)m.ask=mkAsk(room,n,res.ask);
+  room.msgs.push(m);saveRoom(room);refresh(R);return m}
+const askLine=(room,m)=>m.ask?' '+cap(m.who)+' would like to talk with '+(m.ask.to.length?m.ask.to.map(cap).join(' and '):'the others')+' on their own. Say yes or no.':''
+/* one round of replies to what the user just said */
+async function runTurns(R,my,order,opts){
   R.active++;
   try{
     const room=getRoom(R.id);let chain=Promise.resolve();
-    outer:for(let r=0;r<rounds;r++){
-      let spoke=false;
-      for(const n of order){
-        if(R.run!==my)break outer;
-        const res=await generate(R,n);
-        if(res.skip)continue;
-        if(res.err){room.msgs.push({who:'system',content:cap(n)+': '+res.err});saveRoom(room);refresh(R);continue}
-        room.msgs.push({who:n,content:res.pass?'PASS':res.text,pass:!!res.pass});saveRoom(room);refresh(R);
-        if(res.pass)continue;
-        spoke=true;
-        if(opts.speak)chain=chain.then(()=>R.run===my?speakAs(R,n,res.text):null);
-      }
-      if(!spoke)break;
+    for(const n of order){
+      if(R.run!==my)break;
+      const res=await generate(R,n,false);
+      if(R.run!==my)break;
+      if(res.skip||res.pass)continue;
+      if(res.err){room.msgs.push({who:'system',content:cap(n)+': '+res.err});saveRoom(room);refresh(R);continue}
+      const m=pushMsg(R,room,n,res);
+      if(opts.speak)chain=chain.then(()=>R.run===my?speakAs(R,n,(res.text+askLine(room,m)).trim()):null);
     }
     await chain;
   }finally{R.active--;R.typing=null;R.speaking=null;refresh(R)}
 }
+/* AIs talking among themselves: only ever started by the user (button, or approving an AI's request) */
+async function chatLoop(R,my,first,opts,max){
+  R.active++;
+  try{
+    const room=getRoom(R.id);let chain=Promise.resolve(),next=first.slice(),last=null,idle=0,count=0;
+    while(count<max&&R.run===my){
+      const act=activeNames(room);if(act.length<2)break;
+      while(next.length&&(!act.includes(next[0])||next[0]===last))next.shift();
+      let n=next.shift();
+      if(!n){const i=act.indexOf(last);n=act[(i+1)%act.length]}
+      const res=await generate(R,n,true);
+      if(R.run!==my)break;
+      count++;
+      if(res.skip){if(++idle>=act.length)break;last=n;continue}
+      if(res.err){room.msgs.push({who:'system',content:cap(n)+': '+res.err});saveRoom(room);refresh(R);break}
+      if(res.pass){last=n;if(++idle>=act.length)break;continue}
+      idle=0;last=n;pushMsg(R,room,n,res);
+      const tagged=[...res.text.toLowerCase().matchAll(/@([a-z0-9-]+)/g)].map(x=>x[1]).filter(x=>act.includes(x)&&x!==n);
+      if(tagged.length)next=tagged.concat(next);
+      if(opts.speak)chain=chain.then(()=>R.run===my?speakAs(R,n,res.text):null);
+    }
+    await chain;
+  }finally{R.active--;R.typing=null;R.speaking=null;refresh(R)}
+}
+const rotated=room=>{const a=activeNames(room),k=(room.off||0)%Math.max(1,a.length);room.off=(room.off||0)+1;return a.slice(k).concat(a.slice(0,k))};
+const pendingAsk=room=>[...room.msgs].reverse().find(m=>m.ask&&m.ask.status==='pending');
+function answerAsk(R,m,allow,opts){
+  const room=getRoom(R.id);opts=opts||{};if(!m||!m.ask||m.ask.status!=='pending')return;
+  m.ask.status=allow?'allowed':'denied';
+  if(!allow){room.msgs.push({who:'user',content:'Not now, please do not start that conversation.'});saveRoom(room);refresh(R);return}
+  const my=begin(R);
+  room.msgs.push({who:'user',content:'Yes, you may talk with each other about that now. I will listen.'});saveRoom(room);refresh(R);
+  const act=activeNames(room);let first=m.ask.to.filter(x=>act.includes(x));if(!first.length)first=act.filter(x=>x!==m.who);
+  return chatLoop(R,my,first,opts,Math.max(4,act.length*2));
+}
 async function converse(R,text,opts){
   const room=getRoom(R.id);opts=opts||{};
-  const my=++R.run;Voice.stopSpeak();
-  room.msgs.push({who:'user',content:text});saveRoom(room);refresh(R);
+  const pm=pendingAsk(room);
+  if(pm){
+    if(/^\s*(yes|yeah|yep|yup|ok|okay|sure|go ahead|go on|allow|please do|do it)\b/i.test(text))return answerAsk(R,pm,true,opts);
+    if(/^\s*(no|nope|nah|not now|don'?t|stop)\b/i.test(text))return answerAsk(R,pm,false,opts);
+    pm.ask.status='skipped';
+  }
   const asked=[...text.toLowerCase().matchAll(/@([a-z0-9-]+)/g)].map(x=>x[1]);
-  let order=room.members.slice();
-  const named=order.filter(n=>asked.includes(n));
-  if(asked.includes('all')||asked.includes('everyone')){}
+  const act=activeNames(room);
+  if(!act.length){toast('Everyone is muted. Tap a speaker icon to let an AI talk.');return}
+  const named=act.filter(n=>asked.includes(n));
+  if(asked.length&&!named.length&&!asked.includes('all')&&!asked.includes('everyone')&&room.members.some(n=>asked.includes(n))){toast('That AI is muted. Tap its speaker icon to unmute.');return}
+  const my=begin(R);
+  room.msgs.push({who:'user',content:text});saveRoom(room);refresh(R);
+  let order;
+  if(asked.includes('all')||asked.includes('everyone'))order=act;
   else if(named.length)order=named;
-  else{const k=(room.off||0)%order.length;order=order.slice(k).concat(order.slice(0,k));room.off=(room.off||0)+1}
-  await runTurns(R,my,order,1,opts);
+  else order=rotated(room);
+  await runTurns(R,my,order,opts);
 }
 async function discuss(R,opts){
-  const room=getRoom(R.id),my=++R.run;Voice.stopSpeak();
-  const k=(room.off||0)%room.members.length,order=room.members.slice(k).concat(room.members.slice(0,k));room.off=(room.off||0)+1;
-  await runTurns(R,my,order,3,Object.assign({discuss:true},opts||{}));
+  const room=getRoom(R.id),my=begin(R),act=activeNames(room);
+  if(act.length<2){toast('Unmute at least two AIs first');return}
+  await chatLoop(R,my,rotated(room),Object.assign({},opts||{}),Math.max(4,act.length*2));
 }
-function stopRoom(R){R.run++;Voice.stopSpeak();refresh(R)}
+function stopRoom(R){R.run++;Voice.stopSpeak();try{R.ctl&&R.ctl.abort()}catch{};refresh(R)}
 
 /* ---------- screens ---------- */
 function refresh(R){if(R.vm&&R.vm.on)vmDraw(R);if(inRoom(R.id))drawRoom(R)}
@@ -542,7 +621,7 @@ function roomsTab(){
   const ids=roomIds().filter(id=>getRoom(id));
   if(!ids.length){$('#list').innerHTML=`<div class="empty">${orb()}<b style="color:var(--tx);font-size:18px">No rooms yet</b><p>Put two or more AIs in one room. They hear each other, take turns, and you can talk to them by voice or text.</p><button class="btn" id="r2">Create an AI room</button></div>`;$('#r2').onclick=roomSheet;return}
   $('#list').innerHTML=ids.map(id=>{const r=getRoom(id),l=r.msgs.filter(m=>!m.pass&&m.who!=='system').slice(-1)[0];
-    return `<button class="card prov" data-r="${esc(id)}"><div class="av">${esc(r.name[0].toUpperCase())}</div><div class="m"><b>${esc(r.name)}</b><small>${esc(r.members.map(cap).join(', '))}</small>${l?`<small>${esc((l.who==='user'?'You: ':cap(l.who)+': ')+l.content.replace(/\s+/g,' ').slice(0,60))}</small>`:''}</div></button>`}).join('');
+    return `<button class="card prov" data-r="${esc(id)}"><div class="lgs">${r.members.slice(0,3).map(n=>logo(n,34)).join('')}</div><div class="m"><b>${esc(r.name)}</b><small>${esc(r.members.map(cap).join(', '))}</small>${l?`<small>${esc((l.who==='user'?'You: ':cap(l.who)+': ')+l.content.replace(/\s+/g,' ').slice(0,60))}</small>`:''}</div></button>`}).join('');
   document.querySelectorAll('[data-r]').forEach(b=>b.onclick=()=>location.hash='#/room/'+b.dataset.r);
 }
 function roomSheet(){
@@ -566,33 +645,47 @@ function roomView(id){
   const R=rtOf(id);
   $('#app').innerHTML=`<div class="top"><button class="ib" id="bk" aria-label="Back">${ICON.back}</button><div style="flex:1;min-width:0"><h1 style="font-size:19px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(room.name)}</h1><div class="mu" style="font-size:12px">${esc(room.members.map(cap).join(', '))}</div></div><button class="ib" id="mic" aria-label="Voice meeting">${ICON.mic}</button><button class="ib" id="mn" aria-label="Room menu">${ICON.dots}</button></div>
   <div class="chat" id="chat"></div>
-  <div class="rbar"><button class="chip" id="disc">Let them talk</button>${room.members.map(n=>`<button class="chip mem" data-n="${esc(n)}" style="border-color:${colorOf(room,n)}66">@${esc(n)}</button>`).join('')}</div>
+  <div class="rbar" id="rbar"></div>
   <div class="composer"><textarea id="ta" rows="1" placeholder="Say something to the room…"></textarea><button class="send" id="sd" aria-label="Send">${ICON.send}</button></div>`;
   const ta=$('#ta');
   $('#bk').onclick=()=>location.hash='#/';
   ta.oninput=()=>{ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,140)+'px'};
-  document.querySelectorAll('.mem').forEach(b=>b.onclick=()=>{ta.value=(ta.value+' @'+b.dataset.n+' ').trimStart();ta.focus()});
+  drawBar(R);
+  if(!providers.length)api('/api/providers').then(p=>{providers=p;drawBar(R);drawRoom(R)}).catch(()=>{});
   $('#sd').onclick=()=>{const t=ta.value.trim();if(!t){if(R.active>0)stopRoom(R);return}ta.value='';ta.style.height='auto';converse(R,t,{})};
-  $('#disc').onclick=()=>{if(room.msgs.length)discuss(R,{});else toast('Say something first')};
-  $('#mic').onclick=()=>startVoice(R);
+    $('#mic').onclick=()=>startVoice(R);
   $('#mn').onclick=()=>{const v=sheet(`<h2>${esc(room.name)}</h2><button class="row" id="rs"><div class="m"><b>Reset conversation</b><small>Clears the room and starts fresh chats with each AI</small></div></button><button class="row" id="rx"><div class="m"><b>Export transcript</b></div></button><button class="row" id="rd"><div class="m"><b style="color:var(--bad)">Delete room</b></div></button>`);
     v.querySelector('#rx').onclick=()=>{v.remove();exportText(room.name,room.msgs.filter(m=>!m.pass&&m.who!=='system').map(m=>(m.who==='user'?'You':cap(m.who))+': '+m.content).join('\n\n'))};
     const wipe=()=>Promise.all(room.members.map(n=>api('/api/playground/reset','POST',{model:n,room:room.id}).catch(()=>{})));
-    v.querySelector('#rs').onclick=async()=>{stopRoom(R);await wipe();room.msgs=[];saveRoom(room);v.remove();drawRoom(R)};
-    v.querySelector('#rd').onclick=async()=>{if(!confirm('Delete this room?'))return;stopRoom(R);await wipe();localStorage.removeItem('room:'+room.id);delete RC[room.id];localStorage.rooms=JSON.stringify(roomIds().filter(x=>x!==room.id));v.remove();location.hash='#/'}};
+    v.querySelector('#rs').onclick=()=>{stopRoom(R);wipe();room.msgs=[];saveRoom(room);v.remove();drawRoom(R)};
+    v.querySelector('#rd').onclick=async()=>{v.remove();if(!(await ask('Delete "'+room.name+'"? Its chats with each AI are cleared too.','Delete')))return;stopRoom(R);localStorage.removeItem('room:'+room.id);delete RC[room.id];delete RTS[room.id];localStorage.rooms=JSON.stringify(roomIds().filter(x=>x!==room.id));wipe();toast('Room deleted');location.hash='#/'}};
   drawRoom(R);
+}
+function drawBar(R){
+  const room=getRoom(R.id),bar=$('#rbar');if(!bar||!room)return;
+  bar.innerHTML=`<button class="chip" id="disc">Let them talk</button>`+room.members.map(n=>{const off=isMuted(room,n);return `<span class="mchip ${off?'off':''}"><button class="chip mem" data-n="${esc(n)}">${logo(n,20,colorOf(room,n))}<span style="color:${colorOf(room,n)}">@${esc(n)}</span></button><button class="mt" data-n="${esc(n)}" aria-label="${off?'Unmute':'Mute'} ${esc(n)}">${off?ICON.speakeroff:ICON.speaker}</button></span>`}).join('');
+  const ta=$('#ta');
+  bar.querySelectorAll('.mem').forEach(b=>b.onclick=()=>{if(isMuted(room,b.dataset.n)){toast(cap(b.dataset.n)+' is muted. Tap the speaker icon to unmute.');return}ta.value=(ta.value+' @'+b.dataset.n+' ').trimStart();ta.focus()});
+  bar.querySelectorAll('.mt').forEach(b=>b.onclick=()=>toggleMute(R,b.dataset.n));
+  $('#disc').onclick=()=>{if(room.msgs.length)discuss(R,{});else toast('Say something first')};
 }
 function drawRoom(R){
   const room=getRoom(R.id),chat=$('#chat');if(!chat||!room)return;
   const near=chat.scrollHeight-chat.scrollTop-chat.clientHeight<140;
-  let h=room.msgs.slice(-80).map(m=>{
+  const base=Math.max(0,room.msgs.length-80);
+  let h=room.msgs.slice(-80).map((m,j)=>{
     if(m.pass)return '';
     if(m.who==='user')return `<div class="msg user">${esc(m.content)}</div>`;
     if(m.who==='system')return `<div class="act done"><span>${esc(m.content)}</span>${authLike(m.content)?'<button class="btn sm" data-go="1">Sign in</button>':''}</div>`;
-    return `<div class="who" style="color:${colorOf(room,m.who)}">${esc(cap(m.who))}</div><div class="msg assistant" style="border-color:${colorOf(room,m.who)}55">${md(m.content)}</div>`}).join('');
-  if(R.typing)h+=`<div class="who" style="color:${colorOf(room,R.typing)}">${esc(cap(R.typing))}</div><div class="msg assistant"><span class="typing"><i></i><i></i><i></i></span></div>`;
+    const c=colorOf(room,m.who);
+    let o=`<div class="who" style="color:${c}">${logo(m.who,20,c)}<span>${esc(cap(m.who))}</span></div>`;
+    if(m.content)o+=`<div class="msg assistant" style="border-color:${c}55">${md(m.content)}</div>`;
+    if(m.ask){const st=m.ask.status,to=m.ask.to.length?m.ask.to.map(cap).join(' and '):'the others';
+      o+=`<div class="act ${st==='pending'?'':'done'}"><span>${esc(cap(m.who))} would like to talk with ${esc(to)} on their own: ${esc(m.ask.reason)}</span>${st==='pending'?`<button class="btn sm" data-ask="${base+j}" data-y="1">Allow</button><button class="btn sm alt" data-ask="${base+j}" data-y="0">Not now</button>`:`<small>${st==='allowed'?'Allowed':st==='denied'?'Declined':'Skipped'}</small>`}</div>`}
+    return o}).join('');
+  if(R.typing)h+=`<div class="who" style="color:${colorOf(room,R.typing)}">${logo(R.typing,20,colorOf(room,R.typing))}<span>${esc(cap(R.typing))}</span></div><div class="msg assistant"><span class="typing"><i></i><i></i><i></i></span></div>`;
   if(!h)h=`<div class="empty">${orb()}<b style="color:var(--tx);font-size:18px">${esc(room.name)}</b><p>Talk to everyone, or tap a name to ask one AI. They take turns, one at a time, and hear each other.</p></div>`;
-  chat.innerHTML=h;chat.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>location.href='/#/providers');if(near)chat.scrollTop=chat.scrollHeight;
+  chat.innerHTML=h;chat.querySelectorAll('[data-ask]').forEach(b=>b.onclick=()=>answerAsk(R,room.msgs[+b.dataset.ask],b.dataset.y==='1',{}));chat.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>location.href='/#/providers');if(near)chat.scrollTop=chat.scrollHeight;
   const sd=$('#sd');if(sd)sd.innerHTML=R.active>0&&!$('#ta').value.trim()?ICON.stop:ICON.send;
 }
 
@@ -606,9 +699,10 @@ function startVoice(R){
   d.innerHTML=`<div class="vtop"><b>${esc(room.name)}</b></div><div class="vst" id="vst"></div>
   <button class="vorb" id="vorb" aria-label="Tap to interrupt or talk"><span class="vglow"></span><span class="vcore">${ICON.spark}</span></button>
   <div class="vcap" id="vcap"></div>
-  <div class="vpeople">${room.members.map(n=>`<div class="vp" data-n="${esc(n)}"><div class="av" style="color:${colorOf(room,n)}">${esc(n[0].toUpperCase())}</div><small>${esc(cap(n))}</small></div>`).join('')}</div>
+  <div class="vpeople">${room.members.map(n=>`<div class="vp" data-n="${esc(n)}"><div class="av" style="color:${colorOf(room,n)}">${logo(n,34,colorOf(room,n))}</div><small>${esc(cap(n))}</small></div>`).join('')}</div><div id="vask"></div>
   <div class="vbtns"><button class="ib big" id="vmute" aria-label="Mute">${ICON.mic}</button><button class="btn sm alt" id="vdisc">Let them talk</button><button class="ib big end" id="vend" aria-label="End">${ICON.x}</button></div>`;
   document.body.appendChild(d);
+  d.querySelectorAll('.vp').forEach(p=>p.onclick=()=>toggleMute(R,p.dataset.n));
   $('#vorb').onclick=()=>{if(R.speaking||R.active>0){stopRoom(R)}else if(R.vm.tap){const t=R.vm.tap;R.vm.tap=null;t()}};
   $('#vmute').onclick=()=>{R.vm.muted=!R.vm.muted;if(R.vm.muted)Voice.stopListen();vmDraw(R)};
   $('#vdisc').onclick=()=>{if(!room.msgs.length){toast('Say something first');return}Voice.stopListen();discuss(R,{speak:true})};
@@ -626,7 +720,10 @@ function vmDraw(R){
   d.className='vo st-'+st;
   const names={speaking:cap(R.speaking||'')+' is speaking. Tap to interrupt.',thinking:R.typing?cap(R.typing)+' is thinking…':'They are talking…',muted:'Muted',idle:'Tap the orb and speak',listening:'Listening…'};
   $('#vst').textContent=names[st];$('#vcap').textContent=vm.caption||'';
-  d.querySelectorAll('.vp').forEach(p=>p.classList.toggle('on',p.dataset.n===(R.speaking||R.typing)));
+  d.querySelectorAll('.vp').forEach(p=>{p.classList.toggle('on',p.dataset.n===(R.speaking||R.typing));p.classList.toggle('muted',isMuted(getRoom(R.id),p.dataset.n))});
+  const pm=pendingAsk(getRoom(R.id)),va=$('#vask');
+  if(va){const key=pm?'1':'';if(va.dataset.k!==key){va.dataset.k=key;va.innerHTML=pm?`<button class="btn sm" id="vyes">Allow ${esc(cap(pm.who))} to chat</button><button class="btn sm alt" id="vno">Not now</button>`:'';
+    if(pm){$('#vyes').onclick=()=>answerAsk(R,pm,true,{speak:true});$('#vno').onclick=()=>answerAsk(R,pm,false,{speak:true})}}}
   $('#vmute').innerHTML=vm.muted?ICON.micoff:ICON.mic;$('#vmute').classList.toggle('off',vm.muted);
 }
 async function voiceLoop(R){

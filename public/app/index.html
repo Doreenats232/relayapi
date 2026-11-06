@@ -167,7 +167,10 @@ function logout(silent){['tk','em','pic'].forEach(k=>localStorage.removeItem(k))
 
 /* ---------- routing ---------- */
 window.addEventListener('hashchange',route);
-function route(){
+function showFatal(e){const a=document.getElementById('app');if(a)a.innerHTML=`<div class="top"><button class="ib" id="fb" aria-label="Back">${ICON.back}</button><h1>Something broke</h1></div><div class="scroll"><div class="card"><b>${esc(String(e&&e.message||e))}</b><p class="mu" style="font-size:13px">Tell me this message so I can fix it.</p><button class="btn" id="fr">Reload</button></div></div>`;
+  const r=document.getElementById('fr');if(r)r.onclick=()=>location.reload();const b=document.getElementById('fb');if(b)b.onclick=()=>{location.hash='#/';route()}}
+function route(){try{return route0()}catch(e){showFatal(e)}}
+function route0(){
   if(!tok)return authView();
   const h=location.hash.replace(/^#\/?/,'');
   if(h.startsWith('chat/'))return chatView(decodeURIComponent(h.slice(5)));
@@ -399,7 +402,7 @@ function settingsView(){
    ${A?`<button class="row" id="pcb"><div class="m"><b>Let the AI control my phone</b><small>Open apps, set alarms, call, text, search</small></div>${sw('pc',phoneOn())}</button>
    <button class="row" id="pab"><div class="m"><b>Ask before it acts</b><small>Show a Run button for each action</small></div>${sw('pa',askFirst())}</button>
    <button class="row" id="scb"><div class="m"><b>Screen control (accessibility)</b><small>Lets the AI read the screen and tap, type and scroll in other apps. Every step needs your Run tap. What it reads is sent to the AI site.</small></div>${sw('sc',ctlLive())}</button>
-   <button class="row" id="lkb"><div class="m"><b>Lock the app</b><small>Ask for your phone PIN, pattern or fingerprint</small></div>${sw('lk',!!A.lockOn())}</button>`:''}
+   <button class="row" id="lkb"><div class="m"><b>Lock the app</b><small>Ask for your phone PIN, pattern or fingerprint</small></div>${sw('lk',(()=>{try{return !!A.lockOn()}catch{return false}})())}</button>`:''}
   </div>
   <div class="sec">Accounts</div><div class="card" style="padding:4px 16px">
    <button class="row" id="dash"><div class="m"><b>Sign in to a site</b><small>Open the full dashboard: Providers → Live view</small></div>›</button>
@@ -857,6 +860,8 @@ async function checkUpdate(){
 })();
 window.__go=()=>{try{const g=A&&A.takeGo&&A.takeGo();if(!g||!tok)return;localStorage.tab=g==='rooms'?'rooms':'ais';if(location.hash==='#/'||!location.hash)route();else location.hash='#/'}catch{}};
 setTimeout(()=>window.__go&&window.__go(),500);
+document.addEventListener('click',e=>{const b=e.target.closest&&e.target.closest('#st');if(b&&tok&&location.hash!=='#/settings'){location.hash='#/settings'}});
+window.addEventListener('unhandledrejection',e=>{try{toast(String(e.reason&&e.reason.message||e.reason||'Error').slice(0,120))}catch{}});
 </script>
 </body>
 </html>

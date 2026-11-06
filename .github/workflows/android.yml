@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with: { distribution: temurin, java-version: '17' }
       - uses: gradle/actions/setup-gradle@v4
         with: { gradle-version: '8.9' }
@@ -28,7 +28,16 @@ jobs:
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           APP_VERSION_CODE: ${{ github.run_number }}
-        run: gradle --no-daemon :app:assembleRelease
+        shell: bash
+        run: |
+          set -o pipefail
+          gradle --no-daemon --console=plain :app:assembleRelease 2>&1 | tee "$RUNNER_TEMP/build.log"
+      - name: Report build errors
+        if: failure()
+        shell: bash
+        run: |
+          MSG=$(grep -nE "error:|wrong|FAILED|Could not|AAPT|Caused by|Exception" "$RUNNER_TEMP/build.log" | head -25 | cut -c1-230 | sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g')
+          echo "::error title=Gradle::$MSG"
       - name: Publish APK
         env:
           GH_TOKEN: ${{ github.token }}

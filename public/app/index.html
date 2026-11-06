@@ -224,16 +224,31 @@ function addSheet(){
 let cur=null;
 const load=n=>{try{return JSON.parse(localStorage['m:'+n]||'[]')}catch{return[]}};
 const store=(n,m)=>{try{localStorage['m:'+n]=JSON.stringify(m.filter(x=>!x.pending).slice(-200))}catch{}};
+function extract(t){
+  const acts=[];let out='',i=0;
+  const re=/\{\s*"action"\s*:/g;let m;
+  while((m=re.exec(t))){
+    let d=0,j=m.index,str=false,esc=false,end=-1;
+    for(;j<t.length;j++){const c=t[j];
+      if(str){if(esc)esc=false;else if(c==='\\')esc=true;else if(c==='"')str=false;continue}
+      if(c==='"')str=true;else if(c==='{')d++;else if(c==='}'){d--;if(d===0){end=j;break}}}
+    if(end<0)break;
+    try{const o=JSON.parse(t.slice(m.index,end+1));if(o&&o.action){
+      acts.push(o);
+      let pre=t.slice(i,m.index).replace(/(?:^|\n)[ \t]*(?:ACTION:|phone|json|`{3}[a-z]*)\s*$/i,'').replace(/`{3}\s*$/,'');
+      out+=pre;i=end+1;if(t.slice(i).match(/^\s*`{3}/))i+=t.slice(i).match(/^\s*`{3}/)[0].length;
+      re.lastIndex=i}}catch{}
+  }
+  out+=t.slice(i);
+  out=out.replace(/(?:^|\n)[ \t]*ACTION:[ \t]*(?=\n|$)/g,'\n');
+  return {text:out.trim(),acts:acts.slice(0,3)};
+}
 function md(t){
-  t=t.replace(new RegExp(FENCE+'phone[\\s\\S]*?(?:'+FENCE+'|$)','g'),'').trim();
+  t=extract(t).text;
   const parts=esc(t).split(FENCE);
   return parts.map((s,i)=>i%2?`<pre><code>${s.replace(/^[a-z0-9+#-]*\n/i,'')}</code></pre>`:s.replace(/`([^`\n]+)`/g,'<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g,'<b>$1</b>')).join('');
 }
-function actionsOf(t){
-  const out=[];const re=new RegExp(FENCE+'phone\\s*([\\s\\S]*?)'+FENCE,'g');let m;
-  while((m=re.exec(t))){try{const j=JSON.parse(m[1]);(Array.isArray(j)?j:[j]).forEach(a=>{if(a&&a.action)out.push(a)})}catch{}}
-  return out.slice(0,3);
-}
+const actionsOf=t=>extract(t).acts;
 const label=a=>({open_app:'Open '+(a.name||'app'),open_url:'Open '+(a.url||'link'),dial:'Call '+(a.number||''),sms:'Text '+(a.number||''),email:'Email '+(a.to||''),search:'Search “'+(a.query||'')+'”',map:'Map “'+(a.query||'')+'”',alarm:'Alarm '+String(a.hour||0).padStart(2,'0')+':'+String(a.minute||0).padStart(2,'0'),timer:'Timer '+(a.seconds||0)+'s',settings:'Open '+(a.page||'')+' settings',share:'Share text'}[a.action]||a.action);
 function runAction(a){try{return String(A.phone(JSON.stringify(a)))}catch(e){return 'error: '+e.message}}
 
@@ -253,7 +268,7 @@ async function chatView(pn){
     let h=`<div class="msg ${m.role}${m.err?' err':''}" data-i="${i}">${m.role==='assistant'&&!m.err?md(m.content):esc(m.content)}</div>`;
     if(m.role==='assistant'&&!m.pending&&!m.err&&phoneOn()){
       actionsOf(m.content).forEach((a,k)=>{const d=(m.done||{})[k];
-        h+=`<div class="act ${d?'done':''}"><span>${esc(d||label(a))}</span>${d?'':`<button class="btn sm" data-i="${i}" data-k="${k}">Run</button>`}</div>`});
+        h+=`<div class="act ${d?'done':''}"><span>${esc(d?label(a)+' — '+d:label(a))}</span>${d?'':`<button class="btn sm" data-i="${i}" data-k="${k}">Run</button>`}</div>`});
     }
     return h;
   }
@@ -288,7 +303,7 @@ async function chatView(pn){
   $('#sd').onclick=send;
   draw();
 }
-const PHONE_RULES='You are running inside an Android phone app and can control the phone. When the user asks for something the phone can do, reply briefly and add an action block, exactly like this:\n'+FENCE+'phone\n{"action":"open_app","name":"WhatsApp"}\n'+FENCE+'\nAvailable actions (valid JSON, one block per action): open_app{name}, open_url{url}, dial{number}, sms{number,body}, email{to,subject,body}, search{query}, map{query}, alarm{hour,minute,label}, timer{seconds,label}, settings{page: wifi|bluetooth|display|sound|battery|apps|location|main}, share{text}. The user confirms each action before it runs. Only use an action block when the user wants the phone to do something.';
+const PHONE_RULES='You are running inside an Android phone app and can control the phone. The user cannot see tool calls, so to make the phone do something, write one line that starts with ACTION: followed by a single-line JSON object, with no code block and no backticks. Example:\nACTION: {"action":"open_app","name":"WhatsApp"}\nAvailable actions: open_app{name}, open_url{url}, dial{number}, sms{number,body}, email{to,subject,body}, search{query}, map{query}, alarm{hour,minute,label}, timer{seconds,label}, settings{page: wifi|bluetooth|display|sound|battery|apps|location|main}, share{text}. Keep your normal reply to one short sentence next to the ACTION line. The user presses Run before it happens. Only use ACTION when the user wants the phone to do something. For sms you only prepare the message: the user presses send.';
 function sysPrompt(pn){
   const all=(localStorage['rr:all']||'').trim(),own=(localStorage['rr:'+pn]||'').trim(),s=[];
   if(all)s.push('Rules from the user (always follow them):\n'+all);

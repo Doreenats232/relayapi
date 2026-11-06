@@ -261,7 +261,7 @@ public class MainActivity extends Activity {
                 i = new Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:" + Uri.encode(a.optString("number"))));
                 i.putExtra("sms_body", a.optString("body"));
                 launch(i);
-                return "Message ready to send";
+                return "Message drafted. Press send in your messages app.";
             case "email":
                 i = new Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:" + a.optString("to")));
                 i.putExtra(Intent.EXTRA_SUBJECT, a.optString("subject"));
@@ -318,8 +318,6 @@ public class MainActivity extends Activity {
 
     private void launch(final Intent i) {
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        ui.post(() -> {
-            try { startActivity(i); } catch (Exception ignored) { }
-        });
+        startActivity(i);
     }
 }

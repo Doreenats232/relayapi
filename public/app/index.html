@@ -150,6 +150,8 @@ function route(){
   const h=location.hash.replace(/^#\/?/,'');
   if(h.startsWith('chat/'))return chatView(decodeURIComponent(h.slice(5)));
   if(h.startsWith('room/'))return roomView(h.slice(5));
+  if(h==='search')return searchView();
+  if(h==='compare')return compareView();
   if(h==='settings')return settingsView();
   if(h==='rules')return rulesView();
   return listView();
@@ -217,9 +219,9 @@ function handoffDone(code){
 /* ---------- providers ---------- */
 async function listView(){
   const tab=localStorage.tab==='rooms'?'rooms':'ais';
-  $('#app').innerHTML=`<div class="top">${orb()}<h1>Relay</h1><div class="sp"></div><button class="ib" id="add" aria-label="Add">${ICON.plus}</button><button class="ib" id="st" aria-label="Settings">${ICON.gear}</button></div><div class="tabs"><button class="chip ${tab==='ais'?'on':''}" id="t1">AIs</button><button class="chip ${tab==='rooms'?'on':''}" id="t2">AI rooms</button></div><div class="scroll" id="list"><div class="mu" style="padding:20px 4px">Loading…</div></div>`;
+  $('#app').innerHTML=`<div class="top">${orb()}<h1>Relay</h1><div class="sp"></div><button class="ib" id="sr" aria-label="Search">${ICON.search}</button><button class="ib" id="add" aria-label="Add">${ICON.plus}</button><button class="ib" id="st" aria-label="Settings">${ICON.gear}</button></div><div class="tabs"><button class="chip ${tab==='ais'?'on':''}" id="t1">AIs</button><button class="chip ${tab==='rooms'?'on':''}" id="t2">AI rooms</button><button class="chip" id="t3">Compare</button></div><div class="scroll" id="list"><div class="mu" style="padding:20px 4px">Loading…</div></div>`;
   $('#t1').onclick=()=>{localStorage.tab='ais';listView()};$('#t2').onclick=()=>{localStorage.tab='rooms';listView()};
-  $('#st').onclick=()=>location.hash='#/settings';$('#add').onclick=()=>tab==='rooms'?roomSheet():addSheet();
+  $('#st').onclick=()=>location.hash='#/settings';$('#sr').onclick=()=>location.hash='#/search';$('#t3').onclick=()=>location.hash='#/compare';$('#add').onclick=()=>tab==='rooms'?roomSheet():addSheet();
   try{providers=await api('/api/providers')}catch(e){$('#list').innerHTML=`<div class="empty">${esc(e.message)}</div>`;return}
   if(tab==='rooms')return roomsTab();
   if(!providers.length){$('#list').innerHTML=`<div class="empty">${orb()}<b style="color:var(--tx);font-size:18px">No AIs yet</b><p>Add ChatGPT, Gemini, DeepSeek or any chat website, then talk to it from here.</p><button class="btn" id="a2">Add your first AI</button></div>`;$('#a2').onclick=addSheet;return}
@@ -274,14 +276,14 @@ function md(t){
   return parts.map((s,i)=>i%2?`<pre><code>${s.replace(/^[a-z0-9+#-]*\n/i,'')}</code></pre>`:s.replace(/`([^`\n]+)`/g,'<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g,'<b>$1</b>')).join('');
 }
 const actionsOf=t=>extract(t).acts;
-const label=a=>({open_app:'Open '+(a.name||'app'),open_url:'Open '+(a.url||'link'),dial:'Call '+(a.number||''),sms:'Text '+(a.number||''),email:'Email '+(a.to||''),search:'Search “'+(a.query||'')+'”',map:'Map “'+(a.query||'')+'”',alarm:'Alarm '+String(a.hour||0).padStart(2,'0')+':'+String(a.minute||0).padStart(2,'0'),timer:'Timer '+(a.seconds||0)+'s',settings:'Open '+(a.page||'')+' settings',share:'Share text'}[a.action]||a.action);
+const label=a=>({open_app:'Open '+(a.name||'app'),open_url:'Open '+(a.url||'link'),dial:'Call '+(a.name||a.number||''),sms:'Text '+(a.name||a.number||''),email:'Email '+(a.to||''),search:'Search “'+(a.query||'')+'”',map:'Map “'+(a.query||'')+'”',alarm:'Alarm '+String(a.hour||0).padStart(2,'0')+':'+String(a.minute||0).padStart(2,'0'),timer:'Timer '+(a.seconds||0)+'s',settings:'Open '+(a.page||'')+' settings',share:'Share text'}[a.action]||a.action);
 function runAction(a){try{return String(A.phone(JSON.stringify(a)))}catch(e){return 'error: '+e.message}}
 
 async function chatView(pn){
-  let msgs=load(pn);cur=pn;
-  $('#app').innerHTML=`<div class="top"><button class="ib" id="bk" aria-label="Back">${ICON.back}</button><div class="av" style="width:40px;height:40px;border-radius:12px">${esc(pn[0].toUpperCase())}</div><h1 style="font-size:19px;flex:1">${esc(pn)}</h1><button class="ib" id="nw" aria-label="New chat">${ICON.new}</button></div>
+  let msgs=load(pn);cur=pn;const spOn=()=>localStorage['tts:'+pn]==='1';
+  $('#app').innerHTML=`<div class="top"><button class="ib" id="bk" aria-label="Back">${ICON.back}</button><div class="av" style="width:40px;height:40px;border-radius:12px">${esc(pn[0].toUpperCase())}</div><h1 style="font-size:19px;flex:1;min-width:0">${esc(pn)}</h1><button class="ib" id="sp" aria-label="Read replies aloud"></button><button class="ib" id="ex" aria-label="Export chat">${ICON.share}</button><button class="ib" id="nw" aria-label="New chat">${ICON.new}</button></div>
   <div class="chat" id="chat"></div>
-  <div class="composer"><textarea id="ta" rows="1" placeholder="Message ${esc(pn)}"></textarea><button class="send" id="sd" aria-label="Send">${ICON.send}</button></div>`;
+  <div class="composer"><button class="ib" id="mc" aria-label="Speak">${ICON.mic}</button><textarea id="ta" rows="1" placeholder="Message ${esc(pn)}"></textarea><button class="send" id="sd" aria-label="Send">${ICON.send}</button></div>`;
   const chat=$('#chat'),ta=$('#ta');
   $('#bk').onclick=()=>location.hash='#/';
   $('#nw').onclick=async()=>{if(busy)return;if(!confirm('Start a new chat with '+pn+'? This clears the conversation.'))return;
@@ -291,6 +293,7 @@ async function chatView(pn){
   function bubble(m,i){
     if(m.pending&&!m.content)return `<div class="msg assistant"><span class="typing"><i></i><i></i><i></i></span></div>`;
     let h=`<div class="msg ${m.role}${m.err?' err':''}" data-i="${i}">${m.role==='assistant'&&!m.err?md(m.content):esc(m.content)}</div>`;
+    if(m.err&&authLike(m.content))h+=`<div class="act"><span>${esc(cap(pn))} may need signing in again</span><button class="btn sm" data-go="1">Sign in</button></div>`;
     if(m.role==='assistant'&&!m.pending&&!m.err&&phoneOn()){
       actionsOf(m.content).forEach((a,k)=>{const d=(m.done||{})[k];
         h+=`<div class="act ${d?'done':''}"><span>${esc(d?label(a)+' — '+d:label(a))}</span>${d?'':`<button class="btn sm" data-i="${i}" data-k="${k}">Run</button>`}</div>`});
@@ -299,12 +302,13 @@ async function chatView(pn){
   }
   function draw(){
     chat.innerHTML=msgs.length?msgs.map(bubble).join(''):`<div class="empty">${orb()}<b style="color:var(--tx);font-size:18px">Talk to ${esc(pn)}</b><p>This chat stays open on ${esc(pn)}, so it remembers the conversation.</p></div>`;
-    chat.querySelectorAll('.act button').forEach(b=>b.onclick=()=>{const m=msgs[b.dataset.i],a=actionsOf(m.content)[b.dataset.k];m.done=m.done||{};m.done[b.dataset.k]=runAction(a);store(pn,msgs);draw()});
+    chat.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>location.href='/#/providers');
+    chat.querySelectorAll('.act button:not([data-go])').forEach(b=>b.onclick=()=>{const m=msgs[b.dataset.i],a=actionsOf(m.content)[b.dataset.k];m.done=m.done||{};m.done[b.dataset.k]=runAction(a);store(pn,msgs);draw()});
     chat.scrollTop=chat.scrollHeight;
   }
   async function send(){
     const text=ta.value.trim();if(!text||busy)return;
-    ta.value='';ta.style.height='auto';busy=true;$('#sd').disabled=true;
+    ta.value='';ta.style.height='auto';busy=true;$('#sd').disabled=true;Voice.stopSpeak();
     msgs.push({role:'user',content:text});const me={role:'assistant',content:'',pending:true};msgs.push(me);draw();
     try{
       const hist=msgs.filter(m=>!m.pending&&!m.err).map(m=>({role:m.role,content:m.content})).slice(-40);
@@ -322,13 +326,23 @@ async function chatView(pn){
       delete me.pending;if(!me.content.trim()){me.content='No reply came back. Try again, or check the site is still signed in.';me.err=true}
     }catch(e){delete me.pending;me.content=e.message;me.err=true}
     busy=false;store(pn,msgs);
+    if(spOn()&&!me.err&&me.content)Voice.speak(extract(me.content).text,{p:1,r:1,idx:0});
     if(cur===pn){const sd=$('#sd');if(sd)sd.disabled=false;draw();
       if(phoneOn()&&!askFirst()&&!me.err){const as=actionsOf(me.content);me.done={};as.forEach((a,k)=>me.done[k]=runAction(a));store(pn,msgs);draw()}}
   }
   $('#sd').onclick=send;
+  const spi=()=>{$('#sp').innerHTML=spOn()?ICON.speaker:ICON.speakeroff};spi();
+  $('#sp').onclick=()=>{localStorage['tts:'+pn]=spOn()?'0':'1';spi();if(!spOn())Voice.stopSpeak();else toast('Replies will be read aloud')};
+  $('#ex').onclick=()=>exportText(cap(pn)+' chat',msgs.filter(m=>!m.err).map(m=>(m.role==='user'?'You':cap(pn))+': '+extract(m.content).text).join('\n\n'));
+  $('#mc').onclick=async()=>{
+    if(busy)return;if(!Voice.ok()){toast('Voice is not available here');return}
+    Voice.stopSpeak();$('#mc').style.borderColor='var(--a2)';
+    try{const t=await Voice.listen(p=>{ta.value=p;ta.oninput()});ta.value=t;ta.oninput();$('#mc').style.borderColor='';send()}
+    catch(e){$('#mc').style.borderColor='';if(String(e)==='perm')toast('Allow the microphone to talk')}
+  };
   draw();
 }
-const PHONE_RULES='You are running inside an Android phone app and can control the phone. The user cannot see tool calls, so to make the phone do something, write one line that starts with ACTION: followed by a single-line JSON object, with no code block and no backticks. Example:\nACTION: {"action":"open_app","name":"WhatsApp"}\nAvailable actions: open_app{name}, open_url{url}, dial{number}, sms{number,body}, email{to,subject,body}, search{query}, map{query}, alarm{hour,minute,label}, timer{seconds,label}, settings{page: wifi|bluetooth|display|sound|battery|apps|location|main}, share{text}. Keep your normal reply to one short sentence next to the ACTION line. The user presses Run before it happens. Only use ACTION when the user wants the phone to do something. For sms you only prepare the message: the user presses send.';
+const PHONE_RULES='You are running inside an Android phone app and can control the phone. The user cannot see tool calls, so to make the phone do something, write one line that starts with ACTION: followed by a single-line JSON object, with no code block and no backticks. Example:\nACTION: {"action":"open_app","name":"WhatsApp"}\nAvailable actions: open_app{name}, open_url{url}, dial{name or number}, sms{name or number,body}, email{to,subject,body}, search{query}, map{query}, alarm{hour,minute,label}, timer{seconds,label}, settings{page: wifi|bluetooth|display|sound|battery|apps|location|main}, share{text}. Keep your normal reply to one short sentence next to the ACTION line. The user presses Run before it happens. Only use ACTION when the user wants the phone to do something. For sms you only prepare the message: the user presses send.';
 function sysPrompt(pn){
   const all=(localStorage['rr:all']||'').trim(),own=(localStorage['rr:'+pn]||'').trim(),s=[];
   if(all)s.push('Rules from the user (always follow them):\n'+all);
@@ -345,14 +359,16 @@ function settingsView(){
   <div class="sec">Behaviour</div><div class="card" style="padding:4px 16px">
    <button class="row" id="rr"><div class="m"><b>Rule room</b><small>Write extra rules every AI must follow</small></div>›</button>
    ${A?`<button class="row" id="pcb"><div class="m"><b>Let the AI control my phone</b><small>Open apps, set alarms, call, text, search</small></div>${sw('pc',phoneOn())}</button>
-   <button class="row" id="pab"><div class="m"><b>Ask before it acts</b><small>Show a Run button for each action</small></div>${sw('pa',askFirst())}</button>`:''}
+   <button class="row" id="pab"><div class="m"><b>Ask before it acts</b><small>Show a Run button for each action</small></div>${sw('pa',askFirst())}</button>
+   <button class="row" id="lkb"><div class="m"><b>Lock the app</b><small>Ask for your phone PIN, pattern or fingerprint</small></div>${sw('lk',!!A.lockOn())}</button>`:''}
   </div>
   <div class="sec">Accounts</div><div class="card" style="padding:4px 16px">
    <button class="row" id="dash"><div class="m"><b>Sign in to a site</b><small>Open the full dashboard: Providers → Live view</small></div>›</button>
    <button class="row" id="keys"><div class="m"><b>API keys &amp; logs</b><small>Open the full dashboard</small></div>›</button>
   </div>
   <div class="sec">App</div><div class="card" style="padding:4px 16px">
-   ${A?`<button class="row" id="srv"><div class="m"><b>Relay address</b><small>${esc(A.server())}</small></div>›</button>`:''}
+   ${A?`<button class="row" id="upd"><div class="m"><b>App version ${esc(A.version())}</b><small id="vs">Checking for updates…</small></div></button>
+   <button class="row" id="srv"><div class="m"><b>Relay address</b><small>${esc(A.server())}</small></div>›</button>`:''}
    <button class="row" id="rl"><div class="m"><b>Reload latest version</b><small>The app updates itself from your relay</small></div>›</button>
    <button class="row" id="lo"><div class="m"><b style="color:var(--bad)">Sign out</b></div></button>
   </div></div>`;
@@ -361,6 +377,10 @@ function settingsView(){
   tg('#pcb','#pc','pc',true);tg('#pab','#pa','pcask',true);
   $('#dash').onclick=()=>location.href='/#/providers';$('#keys').onclick=()=>location.href='/#/keys';
   if($('#srv'))$('#srv').onclick=()=>A.setServer();
+  if($('#lkb'))$('#lkb').onclick=()=>{const on=!A.lockOn();A.setLock(on);$('#lk').classList.toggle('on',on)};
+  if($('#upd'))checkUpdate().then(u=>{const el=$('#vs');if(!el)return;
+    if(u){el.textContent='Update available (build '+u.latest+'). Tap to download.';$('#upd').onclick=()=>A.openExternalUrl(u.url)}
+    else el.textContent=u===false?'You have the latest version':'Could not check for updates'});
   $('#rl').onclick=()=>location.reload();$('#lo').onclick=()=>{if(confirm('Sign out of Relay?'))logout()};
 }
 async function rulesView(){
@@ -555,7 +575,8 @@ function roomView(id){
   $('#sd').onclick=()=>{const t=ta.value.trim();if(!t){if(R.active>0)stopRoom(R);return}ta.value='';ta.style.height='auto';converse(R,t,{})};
   $('#disc').onclick=()=>{if(room.msgs.length)discuss(R,{});else toast('Say something first')};
   $('#mic').onclick=()=>startVoice(R);
-  $('#mn').onclick=()=>{const v=sheet(`<h2>${esc(room.name)}</h2><button class="row" id="rs"><div class="m"><b>Reset conversation</b><small>Clears the room and starts fresh chats with each AI</small></div></button><button class="row" id="rd"><div class="m"><b style="color:var(--bad)">Delete room</b></div></button>`);
+  $('#mn').onclick=()=>{const v=sheet(`<h2>${esc(room.name)}</h2><button class="row" id="rs"><div class="m"><b>Reset conversation</b><small>Clears the room and starts fresh chats with each AI</small></div></button><button class="row" id="rx"><div class="m"><b>Export transcript</b></div></button><button class="row" id="rd"><div class="m"><b style="color:var(--bad)">Delete room</b></div></button>`);
+    v.querySelector('#rx').onclick=()=>{v.remove();exportText(room.name,room.msgs.filter(m=>!m.pass&&m.who!=='system').map(m=>(m.who==='user'?'You':cap(m.who))+': '+m.content).join('\n\n'))};
     const wipe=()=>Promise.all(room.members.map(n=>api('/api/playground/reset','POST',{model:n,room:room.id}).catch(()=>{})));
     v.querySelector('#rs').onclick=async()=>{stopRoom(R);await wipe();room.msgs=[];saveRoom(room);v.remove();drawRoom(R)};
     v.querySelector('#rd').onclick=async()=>{if(!confirm('Delete this room?'))return;stopRoom(R);await wipe();localStorage.removeItem('room:'+room.id);delete RC[room.id];localStorage.rooms=JSON.stringify(roomIds().filter(x=>x!==room.id));v.remove();location.hash='#/'}};
@@ -567,11 +588,11 @@ function drawRoom(R){
   let h=room.msgs.slice(-80).map(m=>{
     if(m.pass)return '';
     if(m.who==='user')return `<div class="msg user">${esc(m.content)}</div>`;
-    if(m.who==='system')return `<div class="act done"><span>${esc(m.content)}</span></div>`;
+    if(m.who==='system')return `<div class="act done"><span>${esc(m.content)}</span>${authLike(m.content)?'<button class="btn sm" data-go="1">Sign in</button>':''}</div>`;
     return `<div class="who" style="color:${colorOf(room,m.who)}">${esc(cap(m.who))}</div><div class="msg assistant" style="border-color:${colorOf(room,m.who)}55">${md(m.content)}</div>`}).join('');
   if(R.typing)h+=`<div class="who" style="color:${colorOf(room,R.typing)}">${esc(cap(R.typing))}</div><div class="msg assistant"><span class="typing"><i></i><i></i><i></i></span></div>`;
   if(!h)h=`<div class="empty">${orb()}<b style="color:var(--tx);font-size:18px">${esc(room.name)}</b><p>Talk to everyone, or tap a name to ask one AI. They take turns, one at a time, and hear each other.</p></div>`;
-  chat.innerHTML=h;if(near)chat.scrollTop=chat.scrollHeight;
+  chat.innerHTML=h;chat.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>location.href='/#/providers');if(near)chat.scrollTop=chat.scrollHeight;
   const sd=$('#sd');if(sd)sd.innerHTML=R.active>0&&!$('#ta').value.trim()?ICON.stop:ICON.send;
 }
 
@@ -628,6 +649,67 @@ async function voiceLoop(R){
   }
 }
 
+/* ---------- extras: search, compare, export, update check ---------- */
+Object.assign(ICON,{
+  search:'<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>',
+  share:'<svg viewBox="0 0 24 24"><path d="M12 15V3M7 8l5-5 5 5M5 13v6a2 2 0 002 2h10a2 2 0 002-2v-6"/></svg>',
+  speaker:'<svg viewBox="0 0 24 24"><path d="M11 5L6 9H3v6h3l5 4zM15.5 8.5a5 5 0 010 7M18.5 5.5a9 9 0 010 13"/></svg>',
+  speakeroff:'<svg viewBox="0 0 24 24"><path d="M11 5L6 9H3v6h3l5 4zM22 9l-6 6M16 9l6 6"/></svg>'
+});
+const authLike=t=>/sign.?in|log.?in|logged|session|captcha|expired|verify|unauthor|not authenticated|text box|login wall/i.test(t||'');
+function exportText(title,text){
+  if(A){try{A.phone(JSON.stringify({action:'share',text:title+'\n\n'+text}))}catch{}return}
+  if(navigator.share){navigator.share({title,text}).catch(()=>{});return}
+  try{navigator.clipboard.writeText(text);toast('Copied to clipboard')}catch{toast('Could not export')}
+}
+function searchView(){
+  $('#app').innerHTML=`<div class="top"><button class="ib" id="bk" aria-label="Back">${ICON.back}</button><h1>Search chats</h1></div><div class="scroll"><input id="q" class="in" placeholder="Search all your chats and rooms" autocomplete="off"><div id="res" style="margin-top:14px"></div></div>`;
+  $('#bk').onclick=()=>location.hash='#/';
+  const run=()=>{
+    const q=$('#q').value.trim().toLowerCase();if(q.length<2){$('#res').innerHTML='';return}
+    const out=[];
+    for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);
+      try{
+        if(k.startsWith('m:')){JSON.parse(localStorage[k]).forEach(m=>{if(m.content&&m.content.toLowerCase().includes(q))out.push({t:'chat',n:k.slice(2),c:m.content})})}
+        else if(k.startsWith('room:')){const r=JSON.parse(localStorage[k]);(r.msgs||[]).forEach(m=>{if(!m.pass&&m.content&&m.content.toLowerCase().includes(q))out.push({t:'room',n:r.name,id:r.id,c:m.content})})}
+      }catch{}}
+    $('#res').innerHTML=out.slice(0,40).map(o=>{const i=o.c.toLowerCase().indexOf(q),sn=o.c.slice(Math.max(0,i-40),i+100).replace(/\s+/g,' ');
+      return `<button class="card prov" data-t="${o.t}" data-n="${esc(o.n)}" data-id="${esc(o.id||'')}"><div class="m"><b>${esc(o.t==='room'?o.n+' (room)':cap(o.n))}</b><small style="white-space:normal">${esc(sn)}</small></div></button>`}).join('')||'<div class="mu">No matches.</div>';
+    document.querySelectorAll('#res .prov').forEach(b=>b.onclick=()=>location.hash=b.dataset.t==='room'?'#/room/'+b.dataset.id:'#/chat/'+encodeURIComponent(b.dataset.n));
+  };
+  $('#q').oninput=run;
+}
+let cmpBusy=false;
+async function compareView(){
+  try{if(!providers.length)providers=await api('/api/providers')}catch{}
+  const sel=new Set(providers.map(p=>p.name));
+  $('#app').innerHTML=`<div class="top"><button class="ib" id="bk" aria-label="Back">${ICON.back}</button><h1>Compare AIs</h1></div><div class="scroll"><p class="mu" style="margin:0 0 10px">Ask one question and read every AI's answer, one after another.</p><div class="chips" id="cc">${providers.map(p=>`<button class="chip on" data-n="${esc(p.name)}">${esc(cap(p.name))}</button>`).join('')}</div><textarea id="cq" class="in" style="min-height:110px" placeholder="Your question…"></textarea><button class="btn" id="cg" style="margin-top:12px">Ask them all</button><div id="cres" style="margin-top:16px"></div></div>`;
+  $('#bk').onclick=()=>location.hash='#/';
+  document.querySelectorAll('#cc .chip').forEach(c=>c.onclick=()=>{const n=c.dataset.n;if(sel.has(n)){sel.delete(n);c.classList.remove('on')}else{sel.add(n);c.classList.add('on')}});
+  $('#cg').onclick=async()=>{
+    if(cmpBusy)return;const q=$('#cq').value.trim(),names=providers.map(p=>p.name).filter(n=>sel.has(n));
+    if(!q||!names.length){toast('Type a question and pick at least one AI');return}
+    cmpBusy=true;$('#cg').disabled=true;
+    $('#cres').innerHTML=names.map((n,i)=>`<div class="card" style="margin-bottom:10px"><b style="color:var(--a2)">${esc(cap(n))}</b><div class="cb mu" id="cb${i}" style="margin-top:6px;white-space:pre-wrap">Waiting…</div></div>`).join('');
+    for(let i=0;i<names.length;i++){
+      const el=document.getElementById('cb'+i);if(!el)break;el.textContent='Thinking…';
+      try{
+        const t=await streamPlayground({model:names[i],room:'cmp',messages:[{role:'system',content:'Answer each question on its own and ignore earlier questions in this chat. Be clear and reasonably brief.'},{role:'user',content:q}],stream:true},a=>{el.className='cb';el.textContent=a});
+        if(!t.trim())el.textContent='No reply came back.';
+      }catch(e){el.className='cb mu';el.textContent=e.message+(authLike(e.message)?' (you may need to sign in to this AI again from Settings)':'')}
+    }
+    cmpBusy=false;const g=$('#cg');if(g)g.disabled=false;
+  };
+}
+async function checkUpdate(){
+  if(!A||!A.version)return null;
+  try{
+    const j=await (await fetch('https://api.github.com/repos/Doreenats232/relayapi/releases/tags/app-latest')).json();
+    const m=/build (\d+)/.exec(j.body||''),latest=m?+m[1]:0,cur=+A.version(),a=(j.assets||[]).find(x=>x.name==='RelayApp.apk');
+    return latest>cur&&a?{latest,url:a.browser_download_url}:false;
+  }catch{return null}
+}
+
 /* ---------- start ---------- */
 (async function start(){
   const q=new URLSearchParams(location.search);
@@ -638,6 +720,7 @@ async function voiceLoop(R){
     history.replaceState(null,'','/app/#/');
   }
   route();
+  if(A&&A.version&&Date.now()-(+localStorage.updchk||0)>864e5){localStorage.updchk=Date.now();checkUpdate().then(u=>{if(u)toast('A new app version is ready. See Settings.')})}
 })();
 </script>
 </body>

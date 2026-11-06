@@ -41,7 +41,8 @@ jobs:
       - name: Publish APK
         env:
           GH_TOKEN: ${{ github.token }}
+          RUN_NUMBER: ${{ github.run_number }}
         run: |
           cp android/app/build/outputs/apk/release/app-release.apk RelayApp.apk
           gh release delete app-latest --cleanup-tag --yes || true
-          gh release create app-latest RelayApp.apk --title "Relay app (latest)" --notes "Install RelayApp.apk on your phone. The app loads its screens from your relay, so most updates need no reinstall." --latest=false
+          gh release create app-latest RelayApp.apk --title "Relay app (latest)" --notes "build $RUN_NUMBER. Install RelayApp.apk on your phone. The app loads its screens from your relay, so most updates need no reinstall." --latest=false

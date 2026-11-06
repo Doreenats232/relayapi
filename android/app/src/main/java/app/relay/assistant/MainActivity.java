@@ -2,13 +2,16 @@ package app.relay.assistant;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.KeyguardManager;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.content.pm.PackageInfo;
 import android.content.pm.ResolveInfo;
+import android.database.Cursor;
 import android.graphics.Color;
 import android.net.Uri;
 import android.Manifest;
@@ -16,6 +19,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.AlarmClock;
+import android.provider.ContactsContract;
 import android.provider.Settings;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
@@ -62,6 +66,9 @@ public class MainActivity extends Activity {
     private TextToSpeech tts;
     private boolean ttsReady = false;
     private SpeechRecognizer rec;
+    private boolean lockOn = false, unlocked = false, authing = false;
+    private long pausedAt = 0;
+    private LinearLayout lockView;
     private final Handler ui = new Handler(Looper.getMainLooper());
 
     @Override
@@ -69,6 +76,7 @@ public class MainActivity extends Activity {
         super.onCreate(b);
         sp = getSharedPreferences("relay", MODE_PRIVATE);
         base = sp.getString("server", "");
+        lockOn = sp.getBoolean("lock", false);
 
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(INK);
@@ -120,6 +128,22 @@ public class MainActivity extends Activity {
         splash.addView(retry);
         splash.addView(change);
         root.addView(splash, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        lockView = new LinearLayout(this);
+        lockView.setOrientation(LinearLayout.VERTICAL);
+        lockView.setGravity(Gravity.CENTER);
+        lockView.setBackgroundColor(INK);
+        TextView lt = new TextView(this);
+        lt.setText("Relay is locked");
+        lt.setTextColor(Color.parseColor("#ECEEFB"));
+        lt.setTextSize(18);
+        lt.setGravity(Gravity.CENTER);
+        lockView.addView(lt);
+        Button ub = new Button(this);
+        ub.setText("Unlock");
+        ub.setOnClickListener(v -> lockNow());
+        lockView.addView(ub);
+        lockView.setVisibility(View.GONE);
+        root.addView(lockView, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         setContentView(root);
 
         tts = new TextToSpeech(this, status -> {
@@ -231,6 +255,21 @@ public class MainActivity extends Activity {
     private class Bridge {
         @JavascriptInterface public String server() { return base; }
 
+        @JavascriptInterface public String version() {
+            try {
+                PackageInfo pi = getPackageManager().getPackageInfo(getPackageName(), 0);
+                return String.valueOf(pi.versionCode);
+            } catch (Exception e) { return "0"; }
+        }
+
+        @JavascriptInterface public boolean lockOn() { return lockOn; }
+
+        @JavascriptInterface public void setLock(boolean on) {
+            lockOn = on;
+            sp.edit().putBoolean("lock", on).apply();
+            if (on) unlocked = true;
+        }
+
         @JavascriptInterface public void setServer() { ui.post(MainActivity.this::askServer); }
 
         @JavascriptInterface public void googleSignIn() { openExternal(base + "/app/?handoff=1"); }
@@ -273,6 +312,74 @@ public class MainActivity extends Activity {
                 return "Failed: " + e.getMessage();
             }
         }
+    }
+
+    @Override
+    protected void onPause() {
+        if (!authing) pausedAt = System.currentTimeMillis();
+        super.onPause();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (lockOn && !authing && (!unlocked || System.currentTimeMillis() - pausedAt > 30000)) lockNow();
+    }
+
+    private void lockNow() {
+        KeyguardManager km = (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
+        if (km == null || !km.isDeviceSecure()) {
+            lockOn = false;
+            sp.edit().putBoolean("lock", false).apply();
+            lockView.setVisibility(View.GONE);
+            return;
+        }
+        Intent i = km.createConfirmDeviceCredentialIntent("Relay", "Unlock to continue");
+        if (i == null) { lockView.setVisibility(View.GONE); return; }
+        unlocked = false;
+        lockView.setVisibility(View.VISIBLE);
+        authing = true;
+        startActivityForResult(i, 9);
+    }
+
+    @Override
+    protected void onActivityResult(int req, int res, Intent data) {
+        super.onActivityResult(req, res, data);
+        if (req == 9) {
+            authing = false;
+            if (res == RESULT_OK) {
+                unlocked = true;
+                pausedAt = System.currentTimeMillis();
+                lockView.setVisibility(View.GONE);
+            }
+        }
+    }
+
+    private String resolveNumber(JSONObject a) throws Exception {
+        String n = a.optString("number", "").trim();
+        if (n.matches(".*\\d{3,}.*")) return n;
+        String name = a.optString("name", n).trim();
+        if (name.isEmpty()) throw new Exception("No number or contact name given");
+        if (checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+            ui.post(() -> requestPermissions(new String[]{Manifest.permission.READ_CONTACTS}, 8));
+            throw new Exception("Allow contacts access, then press Run again");
+        }
+        Cursor c = getContentResolver().query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                new String[]{ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, ContactsContract.CommonDataKinds.Phone.NUMBER},
+                ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " LIKE ?", new String[]{"%" + name + "%"}, null);
+        String first = null, exact = null;
+        if (c != null) {
+            try {
+                while (c.moveToNext()) {
+                    String dn = c.getString(0), num = c.getString(1);
+                    if (first == null) first = num;
+                    if (exact == null && dn != null && dn.equalsIgnoreCase(name)) exact = num;
+                }
+            } finally { c.close(); }
+        }
+        String r = exact != null ? exact : first;
+        if (r == null) throw new Exception("No contact named " + name);
+        return r;
     }
 
     private void js(final String code) {
@@ -368,10 +475,10 @@ public class MainActivity extends Activity {
                 return "Opened link";
             }
             case "dial":
-                launch(new Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + Uri.encode(a.optString("number")))));
+                launch(new Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + Uri.encode(resolveNumber(a)))));
                 return "Dialer opened";
             case "sms":
-                i = new Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:" + Uri.encode(a.optString("number"))));
+                i = new Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:" + Uri.encode(resolveNumber(a))));
                 i.putExtra("sms_body", a.optString("body"));
                 launch(i);
                 return "Message drafted. Press send in your messages app.";

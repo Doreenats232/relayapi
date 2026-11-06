@@ -31,7 +31,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          gradle --no-daemon --console=plain :app:assembleRelease 2>&1 | tee "$RUNNER_TEMP/build.log"
+          gradle --no-daemon --stacktrace --console=plain :app:assembleRelease 2>&1 | tee "$RUNNER_TEMP/build.log"
       - name: Report build errors
         if: failure()
         shell: bash

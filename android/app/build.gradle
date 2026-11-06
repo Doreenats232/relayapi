@@ -1,5 +1,10 @@
 plugins { id 'com.android.application' }
 
+def ksPath = System.getenv('KEYSTORE_PATH')
+def ksPw = System.getenv('KEYSTORE_PASSWORD')
+def hasKey = (ksPath != null && ksPw != null)
+def vCode = (System.getenv('APP_VERSION_CODE') ?: '1') as Integer
+
 android {
     namespace 'app.relay.assistant'
     compileSdk 34
@@ -7,24 +12,25 @@ android {
         applicationId 'app.relay.assistant'
         minSdk 26
         targetSdk 34
-        versionCode (System.getenv('APP_VERSION_CODE') ?: '1').toInteger()
+        versionCode vCode
         versionName '1.0'
     }
     signingConfigs {
         release {
-            def ks = System.getenv('KEYSTORE_PATH')
-            if (ks) {
-                storeFile file(ks)
-                storePassword System.getenv('KEYSTORE_PASSWORD')
+            if (hasKey) {
+                storeFile file(ksPath)
+                storePassword ksPw
                 keyAlias 'relay'
-                keyPassword System.getenv('KEYSTORE_PASSWORD')
+                keyPassword ksPw
             }
         }
     }
     buildTypes {
         release {
             minifyEnabled false
-            signingConfig System.getenv('KEYSTORE_PATH') ? signingConfigs.release : signingConfigs.debug
+            if (hasKey) {
+                signingConfig signingConfigs.release
+            }
         }
     }
     compileOptions {

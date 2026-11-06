@@ -3,6 +3,10 @@ package app.relay.assistant;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.KeyguardManager;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -68,6 +72,7 @@ public class MainActivity extends Activity {
     private SpeechRecognizer rec;
     private boolean lockOn = false, unlocked = false, authing = false;
     private long pausedAt = 0;
+    private boolean fg = true;
     private LinearLayout lockView;
     private final Handler ui = new Handler(Looper.getMainLooper());
 
@@ -305,6 +310,19 @@ public class MainActivity extends Activity {
             ui.post(() -> { if (tts != null) tts.stop(); });
         }
 
+        @JavascriptInterface public void askNotifyPerm() {
+            ui.post(() -> {
+                if (android.os.Build.VERSION.SDK_INT >= 33
+                        && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) {
+                    requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 77);
+                }
+            });
+        }
+
+        @JavascriptInterface public void notifyDone(final String title, final String text) {
+            ui.post(() -> showDone(title, text));
+        }
+
         @JavascriptInterface public String phone(String json) {
             try {
                 return doAction(new JSONObject(json));
@@ -314,8 +332,34 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void showDone(String title, String text) {
+        if (fg) return;
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 33
+                    && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) return;
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            NotificationChannel ch = new NotificationChannel("replies", "Finished replies", NotificationManager.IMPORTANCE_DEFAULT);
+            nm.createNotificationChannel(ch);
+            Intent i = new Intent(this, MainActivity.class);
+            i.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            PendingIntent pi = PendingIntent.getActivity(this, 0, i, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+            String body = text == null ? "" : text.trim();
+            if (body.length() > 140) body = body.substring(0, 140) + "...";
+            Notification n = new Notification.Builder(this, "replies")
+                    .setSmallIcon(android.R.drawable.stat_notify_chat)
+                    .setContentTitle(title)
+                    .setContentText(body)
+                    .setStyle(new Notification.BigTextStyle().bigText(body))
+                    .setContentIntent(pi)
+                    .setAutoCancel(true)
+                    .build();
+            nm.notify((int) (System.currentTimeMillis() % 100000), n);
+        } catch (Exception ignored) { }
+    }
+
     @Override
     protected void onPause() {
+        fg = false;
         if (!authing) pausedAt = System.currentTimeMillis();
         super.onPause();
     }
@@ -323,6 +367,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        fg = true;
         if (lockOn && !authing && (!unlocked || System.currentTimeMillis() - pausedAt > 30000)) lockNow();
     }
 
@@ -434,6 +479,7 @@ public class MainActivity extends Activity {
     @Override
     public void onRequestPermissionsResult(int code, String[] perms, int[] res) {
         super.onRequestPermissionsResult(code, perms, res);
+        if (code == 77) return;
         if (code != 7) return;
         if (res.length > 0 && res[0] == PackageManager.PERMISSION_GRANTED) startRec();
         else js("window.__heardErr('perm')");

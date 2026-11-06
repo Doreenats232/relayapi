@@ -319,7 +319,7 @@ async function chatView(pn){
   }
   async function send(){
     const text=ta.value.trim();if(!text||busy)return;
-    ta.value='';ta.style.height='auto';busy=true;$('#sd').disabled=true;Voice.stopSpeak();
+    ta.value='';ta.style.height='auto';busy=true;$('#sd').disabled=true;Voice.stopSpeak();askNotif();
     msgs.push({role:'user',content:text});const me={role:'assistant',content:'',pending:true};msgs.push(me);draw();
     try{
       const hist=msgs.filter(m=>!m.pending&&!m.err).map(m=>({role:m.role,content:m.content})).slice(-40);
@@ -334,7 +334,7 @@ async function chatView(pn){
           if(j.error)throw new Error(j.error.message||'The AI could not answer');
           const t=j.choices&&j.choices[0]&&j.choices[0].delta&&j.choices[0].delta.content;
           if(t&&cur===pn){me.content+=t;draw()}else if(t)me.content+=t}}
-      delete me.pending;if(!me.content.trim()){me.content='No reply came back. Try again, or check the site is still signed in.';me.err=true}
+      delete me.pending;if(!me.content.trim()){me.content='No reply came back. Try again, or check the site is still signed in.';me.err=true}else notifyDone(cap(pn),me.content);
     }catch(e){delete me.pending;me.content=e.message;me.err=true}
     busy=false;store(pn,msgs);
     if(spOn()&&!me.err&&me.content)Voice.speak(extract(me.content).text,{p:1,r:1,idx:0});
@@ -410,6 +410,9 @@ async function rulesView(){
   $('#sv').onclick=()=>{const v=$('#rt').value.trim();if(v)localStorage[keyOf()]=v;else localStorage.removeItem(keyOf());toast('Rules saved')};
 }
 
+/* background notification when a reply finishes (Android app only; the app ignores it while open) */
+function askNotif(){try{if(A&&A.askNotifyPerm&&!localStorage.np){localStorage.np=1;A.askNotifyPerm()}}catch{}}
+function notifyDone(t,x){try{if(A&&A.notifyDone)A.notifyDone(t,x)}catch{}}
 /* in-app confirm: the Android WebView ignores window.confirm(), which is why delete did nothing */
 function ask(msg,okLabel){return new Promise(res=>{const v=sheet(`<h2 style="font-size:18px">${esc(msg)}</h2><div style="display:flex;gap:10px;margin-top:14px"><button class="btn alt" id="ano">Cancel</button><button class="btn" id="ayes">${esc(okLabel||'OK')}</button></div>`);
   let done=false;const fin=y=>{if(done)return;done=true;v.remove();res(y)};
@@ -442,7 +445,7 @@ function toggleMute(R,n){const room=getRoom(R.id);room.muted=room.muted||[];
   if(isMuted(room,n)){room.muted=room.muted.filter(x=>x!==n);toast(cap(n)+' can talk again')}
   else{room.muted.push(n);toast(cap(n)+' is muted');if(R.typing===n)try{R.ctl&&R.ctl.abort()}catch{};if(R.speaking===n)Voice.stopSpeak()}
   saveRoom(room);drawBar(R);refresh(R)}
-function begin(R){const my=++R.run;Voice.stopSpeak();try{R.ctl&&R.ctl.abort()}catch{};return my}
+function begin(R){askNotif();const my=++R.run;Voice.stopSpeak();try{R.ctl&&R.ctl.abort()}catch{};return my}
 
 /* voice layer: Android speech services inside the app, the browser's own otherwise */
 const SRC=window.SpeechRecognition||window.webkitSpeechRecognition;
@@ -532,7 +535,7 @@ function mkAsk(room,n,reason){
   const low=reason.toLowerCase(),to=room.members.filter(m=>m!==n&&new RegExp('(^|[^a-z0-9])@?'+m.replace(/[^a-z0-9]/gi,'.')+'([^a-z0-9]|$)').test(low));
   return {reason:reason.replace(/@/g,''),to,status:'pending'}}
 function pushMsg(R,room,n,res){
-  const m={who:n,content:res.text||''};if(res.ask)m.ask=mkAsk(room,n,res.ask);
+  const m={who:n,content:res.text||''};if(res.ask)m.ask=mkAsk(room,n,res.ask);notifyDone(room.name+' · '+cap(n),(res.text||'')+(res.ask?' (wants to talk with the others)':''));
   room.msgs.push(m);saveRoom(room);refresh(R);return m}
 const askLine=(room,m)=>m.ask?' '+cap(m.who)+' would like to talk with '+(m.ask.to.length?m.ask.to.map(cap).join(' and '):'the others')+' on their own. Say yes or no.':''
 /* one round of replies to what the user just said */

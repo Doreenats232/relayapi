@@ -77,6 +77,7 @@ public class MainActivity extends Activity {
     private boolean fg = true;
     private ValueCallback<Uri[]> filePathCb;
     private String pendingGo = null;
+    private String pendingShare = null;
     private LinearLayout lockView;
     private final Handler ui = new Handler(Looper.getMainLooper());
 
@@ -197,6 +198,11 @@ public class MainActivity extends Activity {
     private void handleIntent(Intent i) {
         Uri d = i == null ? null : i.getData();
         if (d != null && "relayapp".equals(d.getScheme())) pendingCode = d.getQueryParameter("code");
+        if (i != null && Intent.ACTION_SEND.equals(i.getAction()) && i.getStringExtra(Intent.EXTRA_TEXT) != null) {
+            pendingShare = i.getStringExtra(Intent.EXTRA_TEXT);
+            i.setAction(null);
+            if (web != null) js("window.__go&&window.__go()");
+        }
         if (i != null && i.getStringExtra("go") != null) {
             pendingGo = i.getStringExtra("go");
             i.removeExtra("go");
@@ -346,6 +352,8 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void openA11y() {
             ui.post(() -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)));
         }
+
+        @JavascriptInterface public String takeShare() { String g = pendingShare; pendingShare = null; return g == null ? "" : g; }
 
         @JavascriptInterface public String takeGo() { String g = pendingGo; pendingGo = null; return g == null ? "" : g; }
 

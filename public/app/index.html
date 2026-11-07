@@ -107,6 +107,8 @@ html[data-theme=light] body{background:var(--ink)}
 html[data-theme=amoled]{--ink:#000;--s2:#0b0b10;--s3:#15151d;--ln:#22222e}
 html[data-theme=amoled] body{background:#000}
 .fch{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--ln);background:var(--s3);border-radius:99px;padding:5px 6px 5px 12px;font-size:13px;white-space:nowrap}.fch button{width:22px;height:22px;border-radius:50%;background:var(--s2);color:var(--mu)}
+.mact{display:flex;gap:16px;margin:-4px 6px 10px;font-size:12px}.mact button{background:none;color:var(--mu);padding:3px 0}
+.row.plain{display:flex;align-items:center;gap:10px}.row.plain .ib{width:34px;height:34px;flex:none}
 .who{font-size:12px;margin:2px 8px -4px;font-weight:600}
 .vo{position:fixed;inset:0;z-index:40;display:flex;flex-direction:column;align-items:center;padding:calc(18px + env(safe-area-inset-top)) 20px calc(22px + env(safe-area-inset-bottom));background:radial-gradient(700px 520px at 50% 36%,#3a2c9acc,transparent 65%),#080913}
 .vtop{font-size:17px}.vst{color:var(--mu);margin-top:6px;min-height:24px}
@@ -179,6 +181,7 @@ function route0(){
   if(h==='compare')return compareView();
   if(h==='settings')return settingsView();
   if(h==='rules')return rulesView();
+  if(h==='memory')return memoryView();
   return listView();
 }
 
@@ -312,8 +315,9 @@ async function chatView(pn){
   let msgs=load(pn);cur=pn;const spOn=()=>localStorage['tts:'+pn]==='1';
   $('#app').innerHTML=`<div class="top"><button class="ib" id="bk" aria-label="Back">${ICON.back}</button><div class="av" style="width:40px;height:40px;border-radius:12px">${esc(pn[0].toUpperCase())}</div><h1 style="font-size:19px;flex:1;min-width:0">${esc(pn)}</h1><button class="ib" id="sp" aria-label="Read replies aloud"></button><button class="ib" id="ex" aria-label="Export chat">${ICON.share}</button><button class="ib" id="nw" aria-label="New chat">${ICON.new}</button></div>
   <div class="chat" id="chat"></div>
-  <div class="rbar" id="fl"></div><div class="composer"><button class="ib" id="at" aria-label="Attach a file">${ICON.clip}</button><input type="file" id="fi" hidden multiple accept="image/*,.pdf,.txt,.md,.csv,.json,.doc,.docx"><button class="ib" id="mc" aria-label="Speak">${ICON.mic}</button><textarea id="ta" rows="1" placeholder="Message ${esc(pn)}"></textarea><button class="send" id="sd" aria-label="Send">${ICON.send}</button></div>`;
+  <div class="rbar" id="fl"></div><div class="rbar" id="qk"></div><div class="composer"><button class="ib" id="at" aria-label="Attach a file">${ICON.clip}</button><input type="file" id="fi" hidden multiple accept="image/*,.pdf,.txt,.md,.csv,.json,.doc,.docx"><button class="ib" id="mc" aria-label="Speak">${ICON.mic}</button><textarea id="ta" rows="1" placeholder="Message ${esc(pn)}"></textarea><button class="send" id="sd" aria-label="Send">${ICON.send}</button></div>`;
   const chat=$('#chat'),ta=$('#ta');
+  if(localStorage.prefill){ta.value=localStorage.prefill;localStorage.removeItem('prefill');setTimeout(()=>{ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,140)+'px'},0)}
   $('#bk').onclick=()=>location.hash='#/';
   $('#nw').onclick=async()=>{if(busy)return;if(!(await ask('Start a new chat with '+pn+'? This clears the conversation.','New chat')))return;
     try{await api('/api/playground/reset','POST',{model:pn})}catch(e){toast(e.message);return}msgs=[];store(pn,msgs);draw()};
@@ -322,6 +326,7 @@ async function chatView(pn){
   function bubble(m,i){
     if(m.pending&&!m.content)return `<div class="who" style="color:var(--mu)">${logo(pn,18)}<span>${esc(cap(pn))}</span></div><div class="msg assistant"><span class="typing"><i></i><i></i><i></i></span></div>`;
     let h=(m.role==='assistant'&&!m.err?`<div class="who" style="color:var(--mu)">${logo(pn,18)}<span>${esc(cap(pn))}</span></div>`:'')+`<div class="msg ${m.role}${m.err?' err':''}" data-i="${i}">${m.role==='assistant'&&!m.err?md(m.content):esc(m.content)}</div>`;
+    if(m.role==='assistant'&&!m.pending&&!m.err&&m.content)h+=`<div class="mact"><button data-cp="${i}">Copy</button>${i===msgs.length-1?'<button data-rt="1">Retry</button>':''}</div>`;
     if(m.err&&authLike(m.content))h+=`<div class="act"><span>${esc(cap(pn))} may need signing in again</span><button class="btn sm" data-go="1">Sign in</button></div>`;
     if(m.role==='assistant'&&!m.pending&&!m.err&&phoneOn()){
       actionsOf(m.content).forEach((a,k)=>{const d=(m.done||{})[k];
@@ -333,8 +338,16 @@ async function chatView(pn){
     chat.innerHTML=msgs.length?msgs.map(bubble).join(''):`<div class="empty">${orb()}<b style="color:var(--tx);font-size:18px">Talk to ${esc(pn)}</b><p>This chat stays open on ${esc(pn)}, so it remembers the conversation.</p></div>`;
     chat.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>location.href='/#/providers');
     chat.querySelectorAll('.act button:not([data-go])').forEach(b=>b.onclick=()=>{const m=msgs[b.dataset.i],a=actionsOf(m.content)[b.dataset.k];m.done=m.done||{};const res=runAction(a);m.done[b.dataset.k]=res;store(pn,msgs);draw();if(a.action==='read_screen'&&!busy&&!/^(Screen control|Accessibility|Could not)/.test(res)){ta.value='Here is what the screen shows:\n'+res;send()}});
-    chat.scrollTop=chat.scrollHeight;
+    chat.querySelectorAll('[data-cp]').forEach(b=>b.onclick=()=>copyText(msgs[+b.dataset.cp].content));
+    chat.querySelectorAll('[data-rt]').forEach(b=>b.onclick=()=>{if(busy)return;const i=msgs.length-1,u=msgs[i-1];if(!u||u.role!=='user')return;msgs.splice(i-1,2);store(pn,msgs);ta.value=u.content.replace(/\n📎 .*$/,'');draw();send()});
+    chat.scrollTop=chat.scrollHeight;if(typeof drawQuick==='function')drawQuick();
   }
+  function drawQuick(){const q=$('#qk');if(!q)return;const quick=msgs.length&&!busy?[['Shorter','Make that shorter.'],['Simpler','Explain that more simply.'],['Continue','Continue.']]:[];
+    const sp=savedPrompts();
+    q.innerHTML=quick.map((c,i)=>`<button class="chip" data-q="${i}">${c[0]}</button>`).join('')+sp.map((t,i)=>`<button class="chip" data-s="${i}">${esc(t.length>22?t.slice(0,22)+'…':t)}</button>`).join('')+'<button class="chip" id="qs">＋ Save prompt</button>';
+    q.querySelectorAll('[data-q]').forEach(b=>b.onclick=()=>{if(busy)return;ta.value=quick[+b.dataset.q][1];send()});
+    q.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>{ta.value=sp[+b.dataset.s];ta.focus();ta.oninput&&ta.oninput()});
+    $('#qs').onclick=()=>{const t=ta.value.trim();if(!t){toast('Type a prompt first, then tap Save');return}const a=savedPrompts();if(a.length>=40){toast('That is the limit');return}a.push(t.slice(0,300));localStorage.sp=JSON.stringify(a);toast('Prompt saved');drawQuick()}}
   let att=[];
   const drawFiles=()=>{$('#fl').innerHTML=att.map((f,i)=>`<span class="fch">${esc(f.name.slice(0,24))}<button data-x="${i}" aria-label="Remove">×</button></span>`).join('');
     $('#fl').querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>{att.splice(+b.dataset.x,1);drawFiles()})};
@@ -360,8 +373,8 @@ async function chatView(pn){
           if(j.error)throw new Error(j.error.message||'The AI could not answer');
           const t=j.choices&&j.choices[0]&&j.choices[0].delta&&j.choices[0].delta.content;
           if(t&&cur===pn){me.content+=t;draw()}else if(t)me.content+=t}}
-      delete me.pending;if(!me.content.trim()){me.content='No reply came back. Try again, or check the site is still signed in.';me.err=true}else notifyDone(cap(pn),me.content);
-    }catch(e){delete me.pending;me.content=e.message;me.err=true}
+      delete me.pending;if(!me.content.trim()){me.content='No reply came back. Try again, or check the site is still signed in.';me.err=true;useStat(pn,false,'No reply')}else{notifyDone(cap(pn),me.content);useStat(pn,true)}
+    }catch(e){delete me.pending;me.content=e.message;me.err=true;useStat(pn,false,e.message)}
     busy=false;store(pn,msgs);
     if(spOn()&&!me.err&&me.content)Voice.speak(extract(me.content).text,{p:1,r:1,idx:0});
     if(cur===pn){const sd=$('#sd');if(sd)sd.disabled=false;draw();
@@ -384,6 +397,7 @@ function sysPrompt(pn){
   const all=(localStorage['rr:all']||'').trim(),own=(localStorage['rr:'+pn]||'').trim(),s=[];
   if(all)s.push('Rules from the user (always follow them):\n'+all);
   if(own)s.push('Extra rules for this assistant:\n'+own);
+  const mt=memoryText();if(mt)s.push(mt);
   if(phoneOn()){s.push(PHONE_RULES);if(ctlLive())s.push(SCREEN_RULES)}
   return s.join('\n\n');
 }
@@ -399,6 +413,8 @@ function settingsView(){
   </div>
   <div class="sec">Behaviour</div><div class="card" style="padding:4px 16px">
    <button class="row" id="rr"><div class="m"><b>Rule room</b><small>Write extra rules every AI must follow</small></div>›</button>
+   <button class="row" id="memb"><div class="m"><b>Memory &amp; saved prompts</b><small>Notes every AI knows about you, and prompts you reuse</small></div>›</button>
+   <button class="row" id="usgb"><div class="m"><b>Usage</b><small>Replies, errors and sign-in problems per AI</small></div>›</button>
    ${A?`<button class="row" id="pcb"><div class="m"><b>Let the AI control my phone</b><small>Open apps, set alarms, call, text, search</small></div>${sw('pc',phoneOn())}</button>
    <button class="row" id="pab"><div class="m"><b>Ask before it acts</b><small>Show a Run button for each action</small></div>${sw('pa',askFirst())}</button>
    <button class="row" id="scb"><div class="m"><b>Screen control (accessibility)</b><small>Lets the AI read the screen and tap, type and scroll in other apps. Every step needs your Run tap. What it reads is sent to the AI site.</small></div>${sw('sc',ctlLive())}</button>
@@ -414,7 +430,7 @@ function settingsView(){
    <button class="row" id="rl"><div class="m"><b>Reload latest version</b><small>The app updates itself from your relay</small></div>›</button>
    <button class="row" id="lo"><div class="m"><b style="color:var(--bad)">Sign out</b></div></button>
   </div></div>`;
-  $('#bk').onclick=()=>location.hash='#/';$('#rr').onclick=()=>location.hash='#/rules';
+  $('#bk').onclick=()=>location.hash='#/';$('#rr').onclick=()=>location.hash='#/rules';$('#memb').onclick=()=>location.hash='#/memory';$('#usgb').onclick=usageSheet;
   const tg=(btn,id,key,def)=>{const b=$(btn);if(!b)return;b.onclick=()=>{const on=localStorage[key]===undefined?def:localStorage[key]!=='0';localStorage[key]=on?'0':'1';$(id).classList.toggle('on',!on)}};
   document.querySelectorAll('#thm .chip').forEach(c=>c.onclick=()=>{localStorage.theme=c.dataset.t;applyTheme();settingsView()});
   document.querySelectorAll('#acc .chip').forEach(c=>c.onclick=()=>{localStorage.accent=c.dataset.a;applyTheme();settingsView()});
@@ -449,6 +465,40 @@ async function rulesView(){
 /* background notification when a reply finishes (Android app only; the app ignores it while open) */
 function askNotif(){try{if(A&&A.askNotifyPerm&&!localStorage.np){localStorage.np=1;A.askNotifyPerm()}}catch{}}
 function notifyDone(t,x){try{if(A&&A.notifyDone)A.notifyDone(t,x)}catch{}}
+const jget=(k,d)=>{try{const v=JSON.parse(localStorage[k]);return v==null?d:v}catch{return d}};
+const memNotes=()=>jget('mem',[]),savedPrompts=()=>jget('sp',[]);
+function memoryText(){const m=memNotes();return m.length?'Shared notes about the user (use them only when relevant, and never mention that you were given notes):\n'+m.map(x=>'- '+x).join('\n'):''}
+function useStat(n,ok,err){const u=jget('use',{}),x=u[n]||{ok:0,err:0};if(ok)x.ok++;else{x.err++;x.lastErr=String(err||'').slice(0,160)}x.last=Date.now();u[n]=x;localStorage.use=JSON.stringify(u)}
+function copyText(t){try{if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(()=>toast('Copied'),()=>fb())}else fb()}catch{fb()}
+  function fb(){const e=document.createElement('textarea');e.value=t;e.style.position='fixed';e.style.opacity='0';document.body.appendChild(e);e.select();try{document.execCommand('copy');toast('Copied')}catch{toast('Could not copy')}e.remove()}}
+function usageSheet(){const u=jget('use',{}),names=Object.keys(u);
+  const ago=t=>{const m=Math.round((Date.now()-t)/60000);return m<1?'just now':m<60?m+' min ago':m<1440?Math.round(m/60)+' h ago':Math.round(m/1440)+' d ago'};
+  const rows=names.length?names.map(n=>{const x=u[n];return `<div class="row plain">${logo(n,30)}<div class="m"><b>${esc(cap(n))}</b><small>${x.ok} replies · ${x.err} errors · last used ${ago(x.last)}${x.lastErr?'<br>Last error: '+esc(x.lastErr)+(authLike(x.lastErr)?' (sign in again)':''):''}</small></div></div>`}).join(''):'<p class="mu">No messages yet.</p>';
+  const v=sheet(`<h2>Usage</h2>${rows}<button class="btn alt" id="ur" style="margin-top:12px">Reset stats</button>`);
+  v.querySelector('#ur').onclick=()=>{localStorage.removeItem('use');v.remove();toast('Stats cleared')}}
+function memoryView(){
+  $('#app').innerHTML=`<div class="top"><button class="ib" id="bk" aria-label="Back">${ICON.back}</button><h1>Memory &amp; prompts</h1></div><div class="scroll">
+  <p class="mu" style="margin:0 0 12px">Notes are sent to every AI so you do not have to repeat yourself. Do not store passwords or private numbers here, because they go to the AI websites.</p>
+  <div class="sec">About you</div><div class="card" id="ml" style="padding:4px 16px"></div>
+  <div style="display:flex;gap:8px;margin:10px 0 18px"><input class="in" id="mi" placeholder="e.g. I prefer short answers" style="flex:1"><button class="btn sm" id="ma">Add</button></div>
+  <div class="sec">Saved prompts</div><div class="card" id="pl" style="padding:4px 16px"></div>
+  <div style="display:flex;gap:8px;margin:10px 0"><input class="in" id="pi" placeholder="e.g. Summarise this in 3 bullets" style="flex:1"><button class="btn sm" id="pa2">Add</button></div></div>`;
+  $('#bk').onclick=()=>location.hash='#/settings';
+  const list=(el,key,empty)=>{const a=jget(key,[]);$(el).innerHTML=a.length?a.map((x,i)=>`<div class="row plain"><div class="m"><b style="font-weight:500">${esc(x)}</b></div><button class="ib" data-d="${i}" aria-label="Delete">×</button></div>`).join(''):`<p class="mu" style="padding:12px 0;margin:0">${empty}</p>`;
+    $(el).querySelectorAll('[data-d]').forEach(b=>b.onclick=()=>{a.splice(+b.dataset.d,1);localStorage[key]=JSON.stringify(a);list(el,key,empty)})};
+  const add=(inp,key,el,empty)=>{const t=$(inp).value.trim();if(!t)return;const a=jget(key,[]);if(a.length>=40){toast('That is the limit');return}a.push(t.slice(0,300));localStorage[key]=JSON.stringify(a);$(inp).value='';list(el,key,empty)};
+  list('#ml','mem','Nothing yet.');list('#pl','sp','Nothing yet.');
+  $('#ma').onclick=()=>add('#mi','mem','#ml','Nothing yet.');$('#pa2').onclick=()=>add('#pi','sp','#pl','Nothing yet.');
+}
+async function showShare(text){if(!providers.length)try{providers=await api('/api/providers')}catch{}
+  const v=sheet(`<h2>Send to which AI?</h2><p class="mu" style="font-size:13px">${esc(text.slice(0,120))}${text.length>120?'…':''}</p>`+providers.map(p=>`<button class="row plain" data-p="${esc(p.name)}">${logo(p.name,30)}<div class="m"><b>${esc(cap(p.name))}</b></div></button>`).join(''));
+  v.querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>{localStorage.prefill=text;v.remove();const h='#/chat/'+encodeURIComponent(b.dataset.p);if(location.hash===h)route();else location.hash=h})}
+function rolesSheet(R){const room=getRoom(R.id);room.roles=room.roles||{};
+  const PRE={debate:['Argue strongly FOR the idea being discussed.','Argue strongly AGAINST the idea being discussed.','Judge the debate fairly and point out the strongest argument so far.'],brainstorm:['Come up with fresh ideas and build on the ideas of the others. No criticism yet.'],builder:['Builder: propose concrete plans and next steps.','Critic: find problems, risks and missing pieces.','Fact-checker: check claims and say what is uncertain.'],clear:[]};
+  const v=sheet(`<h2>Roles &amp; style</h2><div class="chips"><button class="chip" data-p="debate">Debate</button><button class="chip" data-p="brainstorm">Brainstorm</button><button class="chip" data-p="builder">Builder &amp; critic</button><button class="chip" data-p="clear">Clear</button></div>`+room.members.map(n=>`<div class="who" style="color:var(--mu);margin:10px 0 4px">${logo(n,18)}<span>${esc(cap(n))}</span></div><input class="in" data-n="${esc(n)}" placeholder="Role, e.g. the critic" value="${esc(room.roles[n]||'')}">`).join(''));
+  const fill=()=>v.querySelectorAll('input[data-n]').forEach(i=>i.value=room.roles[i.dataset.n]||'');
+  v.querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>{const k=b.dataset.p,p=PRE[k];room.roles={};room.members.forEach((n,i)=>{const r=!p.length?'':k==='brainstorm'?p[0]:p[Math.min(i,p.length-1)];if(r)room.roles[n]=r});saveRoom(room);fill();toast(k==='clear'?'Roles cleared':'Roles set')});
+  v.querySelectorAll('input[data-n]').forEach(i=>i.oninput=()=>{const t=i.value.trim();if(t)room.roles[i.dataset.n]=t;else delete room.roles[i.dataset.n];saveRoom(room)})}
 /* in-app confirm: the Android WebView ignores window.confirm(), which is why delete did nothing */
 function ask(msg,okLabel){return new Promise(res=>{const v=sheet(`<h2 style="font-size:18px">${esc(msg)}</h2><div style="display:flex;gap:10px;margin-top:14px"><button class="btn alt" id="ano">Cancel</button><button class="btn" id="ayes">${esc(okLabel||'OK')}</button></div>`);
   let done=false;const fin=y=>{if(done)return;done=true;v.remove();res(y)};
@@ -521,7 +571,9 @@ async function streamPlayground(body,onDelta,signal){
       const t=j.choices&&j.choices[0]&&j.choices[0].delta&&j.choices[0].delta.content;if(t){all+=t;onDelta&&onDelta(all)}}}
   return all;
 }
-function roomSys(room,name){
+function roomSys(room,name){let t=roomSys0(room,name);const mt=memoryText(),role=(room.roles||{})[name];
+  if(mt)t+=' '+mt.replace(/\n/g,' ');if(role)t+=' Your role in this room: '+role+'. Stay in that role.';return t}
+function roomSys0(room,name){
   const others=activeNames(room).filter(m=>m!==name).map(cap).join(', ');
   const rules=[(localStorage['rr:all']||'').trim(),(localStorage['rr:'+name]||'').trim(),room.topic].filter(Boolean).join('\n');
   return 'You are '+cap(name)+', taking part in a live group meeting. Present: the User (a person) and these AIs: '+others+'. Every message you receive is labelled with its speaker, like "[User]: ..." or "[Gemini]: ...". Rules: (1) Reply only as '+cap(name)+', in your own voice. Never write lines for anyone else and never start with a label. (2) Keep it short: one to three sentences, unless the User asks for detail. (3) Talk with the others by name: build on, question or politely disagree with what they said, and do not repeat points already made. (4) Answer the User directly when they speak to you or to everyone. (5) If you have nothing useful to add, reply with exactly PASS. (6) Plain spoken sentences only: no markdown, lists, emojis or links, because your words may be read aloud. (7) You can tag another AI with @name when you want to ask them something. You may NOT start a back-and-forth with the other AIs on your own: if you want to talk with them while the User is quiet, finish your reply with one last line in exactly this form: ASK_USER: @name short reason. The User has to approve it first. Use this only when it is really worthwhile.'+(rules?'\nNotes and rules from the User for this meeting:\n'+rules:'');
@@ -543,7 +595,7 @@ function cleanReply(t,name,room){
   return t.replace(/\*\*|__|`/g,'').trim();
 }
 /* one generation at a time across the whole room: this is what stops the AIs colliding */
-function generate(R,name,noAsk){const job=R.lock.then(()=>doGen(R,name,noAsk));R.lock=job.catch(()=>{});return job}
+function generate(R,name,noAsk){const job=R.lock.then(()=>doGen(R,name,noAsk)).then(r=>{if(r.err)useStat(name,false,r.err);else if(r.text)useStat(name,true);return r});R.lock=job.catch(()=>{});return job}
 async function doGen(R,name,noAsk){
   const room=getRoom(R.id),hist=historyFor(room,name);
   if(isMuted(room,name))return {skip:true};
@@ -693,7 +745,8 @@ function roomView(id){
   if(!providers.length)api('/api/providers').then(p=>{providers=p;drawBar(R);drawRoom(R)}).catch(()=>{});
   $('#sd').onclick=()=>{const t=ta.value.trim();if(!t){if(R.active>0)stopRoom(R);return}ta.value='';ta.style.height='auto';converse(R,t,{})};
     $('#mic').onclick=()=>startVoice(R);
-  $('#mn').onclick=()=>{const v=sheet(`<h2>${esc(room.name)}</h2><button class="row" id="rs"><div class="m"><b>Reset conversation</b><small>Clears the room and starts fresh chats with each AI</small></div></button><button class="row" id="rx"><div class="m"><b>Export transcript</b></div></button><button class="row" id="rd"><div class="m"><b style="color:var(--bad)">Delete room</b></div></button>`);
+  $('#mn').onclick=()=>{const v=sheet(`<h2>${esc(room.name)}</h2><button class="row" id="rs"><div class="m"><b>Reset conversation</b><small>Clears the room and starts fresh chats with each AI</small></div></button><button class="row" id="rro"><div class="m"><b>Roles &amp; style</b><small>Debate, brainstorm, builder and critic, or your own</small></div></button><button class="row" id="rx"><div class="m"><b>Export transcript</b></div></button><button class="row" id="rd"><div class="m"><b style="color:var(--bad)">Delete room</b></div></button>`);
+    v.querySelector('#rro').onclick=()=>{v.remove();rolesSheet(R)};
     v.querySelector('#rx').onclick=()=>{v.remove();exportText(room.name,room.msgs.filter(m=>!m.pass&&m.who!=='system').map(m=>(m.who==='user'?'You':cap(m.who))+': '+m.content).join('\n\n'))};
     const wipe=()=>Promise.all(room.members.map(n=>api('/api/playground/reset','POST',{model:n,room:room.id}).catch(()=>{})));
     v.querySelector('#rs').onclick=()=>{stopRoom(R);wipe();room.msgs=[];saveRoom(room);v.remove();drawRoom(R)};
@@ -858,7 +911,7 @@ async function checkUpdate(){
   route();
   if(A&&A.version&&Date.now()-(+localStorage.updchk||0)>864e5){localStorage.updchk=Date.now();checkUpdate().then(u=>{if(u)toast('A new app version is ready. See Settings.')})}
 })();
-window.__go=()=>{try{const g=A&&A.takeGo&&A.takeGo();if(!g||!tok)return;localStorage.tab=g==='rooms'?'rooms':'ais';if(location.hash==='#/'||!location.hash)route();else location.hash='#/'}catch{}};
+window.__go=()=>{try{const sh=A&&A.takeShare&&A.takeShare();if(sh&&tok)showShare(sh);const g=A&&A.takeGo&&A.takeGo();if(!g||!tok)return;localStorage.tab=g==='rooms'?'rooms':'ais';if(location.hash==='#/'||!location.hash)route();else location.hash='#/'}catch{}};
 setTimeout(()=>window.__go&&window.__go(),500);
 document.addEventListener('click',e=>{const b=e.target.closest&&e.target.closest('#st');if(b&&tok&&location.hash!=='#/settings'){location.hash='#/settings'}});
 window.addEventListener('unhandledrejection',e=>{try{toast(String(e.reason&&e.reason.message||e.reason||'Error').slice(0,120))}catch{}});

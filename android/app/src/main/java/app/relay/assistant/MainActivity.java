@@ -2,6 +2,7 @@ package app.relay.assistant;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.AlarmManager;
 import android.app.KeyguardManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
@@ -78,6 +79,7 @@ public class MainActivity extends Activity {
     private ValueCallback<Uri[]> filePathCb;
     private String pendingGo = null;
     private String pendingShare = null;
+    private String pendingTask = null;
     private LinearLayout lockView;
     private final Handler ui = new Handler(Looper.getMainLooper());
 
@@ -201,6 +203,11 @@ public class MainActivity extends Activity {
         if (i != null && Intent.ACTION_SEND.equals(i.getAction()) && i.getStringExtra(Intent.EXTRA_TEXT) != null) {
             pendingShare = i.getStringExtra(Intent.EXTRA_TEXT);
             i.setAction(null);
+            if (web != null) js("window.__go&&window.__go()");
+        }
+        if (i != null && "task".equals(i.getStringExtra("go")) && i.getStringExtra("ai") != null) {
+            pendingTask = i.getStringExtra("ai") + "\n" + (i.getStringExtra("prompt") == null ? "" : i.getStringExtra("prompt"));
+            i.removeExtra("go");
             if (web != null) js("window.__go&&window.__go()");
         }
         if (i != null && i.getStringExtra("go") != null) {
@@ -352,6 +359,38 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void openA11y() {
             ui.post(() -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)));
         }
+
+        @JavascriptInterface public void keepOn(final boolean on) {
+            ui.post(() -> {
+                if (on) getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                else getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            });
+        }
+
+        @JavascriptInterface public void scheduleTask(String id, String ai, String prompt, double atMs, boolean daily) {
+            try {
+                Intent i = new Intent(MainActivity.this, TaskReceiver.class);
+                i.putExtra("id", id);
+                i.putExtra("ai", ai);
+                i.putExtra("prompt", prompt);
+                i.putExtra("daily", daily);
+                PendingIntent pi = PendingIntent.getBroadcast(MainActivity.this, id.hashCode(), i,
+                        PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+                AlarmManager am = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+                am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, (long) atMs, pi);
+            } catch (Exception ignored) { }
+        }
+
+        @JavascriptInterface public void cancelTask(String id) {
+            try {
+                Intent i = new Intent(MainActivity.this, TaskReceiver.class);
+                PendingIntent pi = PendingIntent.getBroadcast(MainActivity.this, id.hashCode(), i,
+                        PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+                ((AlarmManager) getSystemService(Context.ALARM_SERVICE)).cancel(pi);
+            } catch (Exception ignored) { }
+        }
+
+        @JavascriptInterface public String takeTask() { String g = pendingTask; pendingTask = null; return g == null ? "" : g; }
 
         @JavascriptInterface public String takeShare() { String g = pendingShare; pendingShare = null; return g == null ? "" : g; }
 

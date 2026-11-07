@@ -182,6 +182,8 @@ function route0(){
   if(h==='settings')return settingsView();
   if(h==='rules')return rulesView();
   if(h==='memory')return memoryView();
+  if(h==='smart')return smartView();
+  if(h==='tasks')return tasksView();
   return listView();
 }
 
@@ -247,15 +249,15 @@ function handoffDone(code){
 /* ---------- providers ---------- */
 async function listView(){
   const tab=localStorage.tab==='rooms'?'rooms':'ais';
-  $('#app').innerHTML=`<div class="top">${orb()}<h1>Relay</h1><div class="sp"></div><button class="ib" id="sr" aria-label="Search">${ICON.search}</button><button class="ib" id="add" aria-label="Add">${ICON.plus}</button><button class="ib" id="st" aria-label="Settings">${ICON.gear}</button></div><div class="tabs"><button class="chip ${tab==='ais'?'on':''}" id="t1">AIs</button><button class="chip ${tab==='rooms'?'on':''}" id="t2">AI rooms</button><button class="chip" id="t3">Compare</button></div><div class="scroll" id="list"><div class="mu" style="padding:20px 4px">Loading…</div></div>`;
+  $('#app').innerHTML=`<div class="top">${orb()}<h1>Relay</h1><div class="sp"></div><button class="ib" id="sr" aria-label="Search">${ICON.search}</button><button class="ib" id="add" aria-label="Add">${ICON.plus}</button><button class="ib" id="st" aria-label="Settings">${ICON.gear}</button></div><div class="tabs"><button class="chip ${tab==='ais'?'on':''}" id="t1">AIs</button><button class="chip ${tab==='rooms'?'on':''}" id="t2">AI rooms</button><button class="chip" id="t3">Compare</button><button class="chip" id="t4">✦ Smart</button></div><div class="scroll" id="list"><div class="mu" style="padding:20px 4px">Loading…</div></div>`;
   $('#t1').onclick=()=>{localStorage.tab='ais';listView()};$('#t2').onclick=()=>{localStorage.tab='rooms';listView()};
-  $('#st').onclick=()=>location.hash='#/settings';$('#sr').onclick=()=>location.hash='#/search';$('#t3').onclick=()=>location.hash='#/compare';$('#add').onclick=()=>tab==='rooms'?roomSheet():addSheet();
+  $('#st').onclick=()=>location.hash='#/settings';$('#sr').onclick=()=>location.hash='#/search';$('#t3').onclick=()=>location.hash='#/compare';$('#t4').onclick=()=>location.hash='#/smart';$('#add').onclick=()=>tab==='rooms'?roomSheet():addSheet();
   try{providers=await api('/api/providers')}catch(e){$('#list').innerHTML=`<div class="empty">${esc(e.message)}</div>`;return}
   if(tab==='rooms')return roomsTab();
   if(!providers.length){$('#list').innerHTML=`<div class="empty">${orb()}<b style="color:var(--tx);font-size:18px">No AIs yet</b><p>Add ChatGPT, Gemini, DeepSeek or any chat website, then talk to it from here.</p><button class="btn" id="a2">Add your first AI</button></div>`;$('#a2').onclick=addSheet;return}
-  $('#list').innerHTML=providers.map(p=>{let h='';try{h=new URL(p.url).host}catch{}
+  $('#list').innerHTML=[...providers].sort((a,b)=>(jget('pins',[]).includes(b.name)?1:0)-(jget('pins',[]).includes(a.name)?1:0)).map(p=>{let h='';try{h=new URL(p.url).host}catch{}
     const n=lastText(p.name);
-    return `<button class="card prov" data-n="${esc(p.name)}"><div class="av">${logo(p.name,34)}</div><div class="m"><b>${esc(p.name)}</b><small>${esc(n||h)}</small></div><span class="dot ${p.hasSession?'on':''}" title="${p.hasSession?'Signed in':'Not signed in'}"></span></button>`}).join('')
+    return `<button class="card prov" data-n="${esc(p.name)}"><div class="av">${logo(p.name,34)}</div><div class="m"><b>${jget('pins',[]).includes(p.name)?'★ ':''}${esc(p.name)}</b><small>${esc(n||h)}</small></div><span class="dot ${p.hasSession?'on':''}" title="${p.hasSession?'Signed in':'Not signed in'}"></span></button>`}).join('')
    +`<p class="mu" style="font-size:13px;text-align:center;margin-top:18px">Green dot: signed in to that site. Open Settings → Sign in to a site if a dot is grey.</p>`;
   document.querySelectorAll('.prov').forEach(b=>b.onclick=()=>location.hash='#/chat/'+encodeURIComponent(b.dataset.n));
 }
@@ -313,18 +315,18 @@ function runAction(a){try{return String(A.phone(JSON.stringify(a)))}catch(e){ret
 
 async function chatView(pn){
   let msgs=load(pn);cur=pn;const spOn=()=>localStorage['tts:'+pn]==='1';
-  $('#app').innerHTML=`<div class="top"><button class="ib" id="bk" aria-label="Back">${ICON.back}</button><div class="av" style="width:40px;height:40px;border-radius:12px">${esc(pn[0].toUpperCase())}</div><h1 style="font-size:19px;flex:1;min-width:0">${esc(pn)}</h1><button class="ib" id="sp" aria-label="Read replies aloud"></button><button class="ib" id="ex" aria-label="Export chat">${ICON.share}</button><button class="ib" id="nw" aria-label="New chat">${ICON.new}</button></div>
+  $('#app').innerHTML=`<div class="top"><button class="ib" id="bk" aria-label="Back">${ICON.back}</button><div class="av" style="width:40px;height:40px;border-radius:12px">${esc(pn[0].toUpperCase())}</div><h1 style="font-size:19px;flex:1;min-width:0">${esc(pn)}</h1><button class="ib" id="pin" aria-label="Pin"></button><button class="ib" id="sp" aria-label="Read replies aloud"></button><button class="ib" id="ex" aria-label="Export chat">${ICON.share}</button><button class="ib" id="nw" aria-label="New chat">${ICON.new}</button></div>
   <div class="chat" id="chat"></div>
   <div class="rbar" id="fl"></div><div class="rbar" id="qk"></div><div class="composer"><button class="ib" id="at" aria-label="Attach a file">${ICON.clip}</button><input type="file" id="fi" hidden multiple accept="image/*,.pdf,.txt,.md,.csv,.json,.doc,.docx"><button class="ib" id="mc" aria-label="Speak">${ICON.mic}</button><textarea id="ta" rows="1" placeholder="Message ${esc(pn)}"></textarea><button class="send" id="sd" aria-label="Send">${ICON.send}</button></div>`;
   const chat=$('#chat'),ta=$('#ta');
-  if(localStorage.prefill){ta.value=localStorage.prefill;localStorage.removeItem('prefill');setTimeout(()=>{ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,140)+'px'},0)}
+  if(localStorage.prefill){ta.value=localStorage.prefill;localStorage.removeItem('prefill');if(localStorage.autosend){localStorage.removeItem('autosend');setTimeout(()=>{if(ta.value.trim())send()},500)}setTimeout(()=>{ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,140)+'px'},0)}
   $('#bk').onclick=()=>location.hash='#/';
   $('#nw').onclick=async()=>{if(busy)return;if(!(await ask('Start a new chat with '+pn+'? This clears the conversation.','New chat')))return;
     try{await api('/api/playground/reset','POST',{model:pn})}catch(e){toast(e.message);return}msgs=[];store(pn,msgs);draw()};
   ta.oninput=()=>{ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,140)+'px'};
 
   function bubble(m,i){
-    if(m.pending&&!m.content)return `<div class="who" style="color:var(--mu)">${logo(pn,18)}<span>${esc(cap(pn))}</span></div><div class="msg assistant"><span class="typing"><i></i><i></i><i></i></span></div>`;
+    if(m.pending&&!m.content)return `<div class="who" style="color:var(--mu)">${logo(pn,18)}<span>${esc(cap(pn))}</span></div><div class="msg assistant"><span class="typing"><i></i><i></i><i></i></span><small class="wait" data-t0="${m.t0||''}" style="color:var(--mu);margin-left:10px"></small></div>`;
     let h=(m.role==='assistant'&&!m.err?`<div class="who" style="color:var(--mu)">${logo(pn,18)}<span>${esc(cap(pn))}</span></div>`:'')+`<div class="msg ${m.role}${m.err?' err':''}" data-i="${i}">${m.role==='assistant'&&!m.err?md(m.content):esc(m.content)}</div>`;
     if(m.role==='assistant'&&!m.pending&&!m.err&&m.content)h+=`<div class="mact"><button data-cp="${i}">Copy</button>${i===msgs.length-1?'<button data-rt="1">Retry</button>':''}</div>`;
     if(m.err&&authLike(m.content))h+=`<div class="act"><span>${esc(cap(pn))} may need signing in again</span><button class="btn sm" data-go="1">Sign in</button></div>`;
@@ -359,7 +361,7 @@ async function chatView(pn){
     let text=ta.value.trim();if(!text&&att.length)text='Please look at the attached file'+(att.length>1?'s':'')+'.';if(!text||busy)return;
     const sendFiles=att;att=[];drawFiles();
     ta.value='';ta.style.height='auto';busy=true;$('#sd').disabled=true;Voice.stopSpeak();askNotif();
-    msgs.push({role:'user',content:text+(sendFiles.length?'\n📎 '+sendFiles.map(f=>f.name).join(', '):'')});const me={role:'assistant',content:'',pending:true};msgs.push(me);draw();
+    msgs.push({role:'user',content:text+(sendFiles.length?'\n📎 '+sendFiles.map(f=>f.name).join(', '):'')});const me={role:'assistant',content:'',pending:true,t0:Date.now()};msgs.push(me);draw();
     try{
       const hist=msgs.filter(m=>!m.pending&&!m.err).map(m=>({role:m.role,content:m.content})).slice(-40);
       const sys=sysPrompt(pn),body={model:pn,messages:(sys?[{role:'system',content:sys}]:[]).concat(hist),stream:true};if(sendFiles.length)body.files=sendFiles;
@@ -376,11 +378,13 @@ async function chatView(pn){
       delete me.pending;if(!me.content.trim()){me.content='No reply came back. Try again, or check the site is still signed in.';me.err=true;useStat(pn,false,'No reply')}else{notifyDone(cap(pn),me.content);useStat(pn,true)}
     }catch(e){delete me.pending;me.content=e.message;me.err=true;useStat(pn,false,e.message)}
     busy=false;store(pn,msgs);
-    if(spOn()&&!me.err&&me.content)Voice.speak(extract(me.content).text,{p:1,r:1,idx:0});
+    if(spOn()&&!me.err&&me.content)Voice.speak(extract(me.content).text,{p:1,r:1,idx:+localStorage['vi:'+pn]||0});
     if(cur===pn){const sd=$('#sd');if(sd)sd.disabled=false;draw();
       if(phoneOn()&&!askFirst()&&!me.err){const as=actionsOf(me.content);me.done={};as.forEach((a,k)=>{if(!SCREEN.has(a.action))me.done[k]=runAction(a)});store(pn,msgs);draw()}}
   }
   $('#sd').onclick=send;
+  const pinI=()=>{$('#pin').textContent=jget('pins',[]).includes(pn)?'★':'☆'};pinI();
+  $('#pin').onclick=()=>{let a=jget('pins',[]);if(a.includes(pn)){a=a.filter(x=>x!==pn);toast('Unpinned')}else{a.push(pn);toast('Pinned to the top')}localStorage.pins=JSON.stringify(a);pinI()};
   const spi=()=>{$('#sp').innerHTML=spOn()?ICON.speaker:ICON.speakeroff};spi();
   $('#sp').onclick=()=>{localStorage['tts:'+pn]=spOn()?'0':'1';spi();if(!spOn())Voice.stopSpeak();else toast('Replies will be read aloud')};
   $('#ex').onclick=()=>exportText(cap(pn)+' chat',msgs.filter(m=>!m.err).map(m=>(m.role==='user'?'You':cap(pn))+': '+extract(m.content).text).join('\n\n'));
@@ -414,6 +418,10 @@ function settingsView(){
   <div class="sec">Behaviour</div><div class="card" style="padding:4px 16px">
    <button class="row" id="rr"><div class="m"><b>Rule room</b><small>Write extra rules every AI must follow</small></div>›</button>
    <button class="row" id="memb"><div class="m"><b>Memory &amp; saved prompts</b><small>Notes every AI knows about you, and prompts you reuse</small></div>›</button>
+   <button class="row" id="tkb"><div class="m"><b>Scheduled asks</b><small>A notification at a set time that sends your question to an AI</small></div>›</button>
+   <button class="row" id="vcb"><div class="m"><b>Voices</b><small>Speed, and which voice each AI uses</small></div>›</button>
+   <button class="row" id="bub"><div class="m"><b>Backup &amp; restore</b><small>Keep your chats, notes and settings safe</small></div>›</button>
+   <button class="row" id="rpb"><div class="m"><b>Report a problem</b><small>Shares a short report you can send me</small></div>›</button>
    <button class="row" id="usgb"><div class="m"><b>Usage</b><small>Replies, errors and sign-in problems per AI</small></div>›</button>
    ${A?`<button class="row" id="pcb"><div class="m"><b>Let the AI control my phone</b><small>Open apps, set alarms, call, text, search</small></div>${sw('pc',phoneOn())}</button>
    <button class="row" id="pab"><div class="m"><b>Ask before it acts</b><small>Show a Run button for each action</small></div>${sw('pa',askFirst())}</button>
@@ -430,7 +438,7 @@ function settingsView(){
    <button class="row" id="rl"><div class="m"><b>Reload latest version</b><small>The app updates itself from your relay</small></div>›</button>
    <button class="row" id="lo"><div class="m"><b style="color:var(--bad)">Sign out</b></div></button>
   </div></div>`;
-  $('#bk').onclick=()=>location.hash='#/';$('#rr').onclick=()=>location.hash='#/rules';$('#memb').onclick=()=>location.hash='#/memory';$('#usgb').onclick=usageSheet;
+  $('#bk').onclick=()=>location.hash='#/';$('#rr').onclick=()=>location.hash='#/rules';$('#memb').onclick=()=>location.hash='#/memory';$('#usgb').onclick=usageSheet;$('#tkb').onclick=()=>location.hash='#/tasks';$('#vcb').onclick=voicesSheet;$('#bub').onclick=backupSheet;$('#rpb').onclick=reportProblem;
   const tg=(btn,id,key,def)=>{const b=$(btn);if(!b)return;b.onclick=()=>{const on=localStorage[key]===undefined?def:localStorage[key]!=='0';localStorage[key]=on?'0':'1';$(id).classList.toggle('on',!on)}};
   document.querySelectorAll('#thm .chip').forEach(c=>c.onclick=()=>{localStorage.theme=c.dataset.t;applyTheme();settingsView()});
   document.querySelectorAll('#acc .chip').forEach(c=>c.onclick=()=>{localStorage.accent=c.dataset.a;applyTheme();settingsView()});
@@ -499,6 +507,70 @@ function rolesSheet(R){const room=getRoom(R.id);room.roles=room.roles||{};
   const fill=()=>v.querySelectorAll('input[data-n]').forEach(i=>i.value=room.roles[i.dataset.n]||'');
   v.querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>{const k=b.dataset.p,p=PRE[k];room.roles={};room.members.forEach((n,i)=>{const r=!p.length?'':k==='brainstorm'?p[0]:p[Math.min(i,p.length-1)];if(r)room.roles[n]=r});saveRoom(room);fill();toast(k==='clear'?'Roles cleared':'Roles set')});
   v.querySelectorAll('input[data-n]').forEach(i=>i.oninput=()=>{const t=i.value.trim();if(t)room.roles[i.dataset.n]=t;else delete room.roles[i.dataset.n];saveRoom(room)})}
+/* ---- smart pick ---- */
+const KINDS={code:/\b(code|function|bug|error|python|javascript|java|css|html|sql|api|regex|script|compile|debug|react|android)\b/i,math:/\b(calculate|equation|solve|math|percent|integral|derivative|probability)\b|\d+\s*[+\-*\/x×÷]\s*\d+/i,research:/\b(news|latest|today|current|price|who is|when did|search|source|statistics|research|2026|2027)\b/i,writing:/\b(write|rewrite|essay|email|letter|story|poem|caption|translate|summari[sz]e|proofread|improve this)\b/i};
+const GUESS={code:['claude','deepseek','chatgpt'],math:['deepseek','chatgpt','gemini'],research:['gemini','perplexity','chatgpt'],writing:['claude','chatgpt','gemini'],general:['chatgpt','gemini','claude']};
+const kindOf=t=>{for(const k of ['code','math','research','writing'])if(KINDS[k].test(t))return k;return 'general'};
+function pickAI(t){const k=kindOf(t),names=providers.map(p=>p.name),signed=providers.filter(p=>p.hasSession).map(p=>p.name),pool=signed.length?signed:names,pref=localStorage['route:'+k];
+  if(pref&&pool.includes(pref))return {k,name:pref,why:'your choice for '+k+' questions'};
+  for(const g of GUESS[k]){const m=pool.find(n=>n.toLowerCase().includes(g));if(m)return {k,name:m,why:'usually good for '+k+' questions'}}
+  return {k,name:pool[0],why:'the first AI you are signed in to'}}
+async function smartView(){
+  try{if(!providers.length)providers=await api('/api/providers')}catch{}
+  $('#app').innerHTML=`<div class="top"><button class="ib" id="bk" aria-label="Back">${ICON.back}</button><h1>Smart pick</h1></div><div class="scroll">
+  <p class="mu" style="margin:0 0 12px">Type a question and Relay picks the AI that suits it. You can change the choice before sending.</p>
+  <textarea id="sq" class="in" style="min-height:110px" placeholder="Ask anything"></textarea>
+  <div id="sres" style="margin:12px 0"></div><button class="btn" id="sgo">Pick the best AI</button>
+  <div class="sec" style="margin-top:22px">My routing</div><div class="card" style="padding:6px 16px">${['code','math','research','writing','general'].map(k=>`<div class="row plain"><div class="m"><b>${cap(k)}</b></div><select class="in" data-k="${k}" style="width:auto"><option value="">Automatic</option>${providers.map(p=>`<option value="${esc(p.name)}" ${localStorage['route:'+k]===p.name?'selected':''}>${esc(p.name)}</option>`).join('')}</select></div>`).join('')}</div></div>`;
+  $('#bk').onclick=()=>location.hash='#/';
+  document.querySelectorAll('select[data-k]').forEach(e=>e.onchange=()=>{if(e.value)localStorage['route:'+e.dataset.k]=e.value;else localStorage.removeItem('route:'+e.dataset.k)});
+  let chosen=null;
+  const go=()=>{const q=$('#sq').value.trim();if(!q||!chosen)return;localStorage.prefill=q;localStorage.autosend='1';location.hash='#/chat/'+encodeURIComponent(chosen)};
+  $('#sgo').onclick=()=>{const q=$('#sq').value.trim();if(!q){toast('Type a question first');return}
+    if(chosen){go();return}
+    if(!providers.length){toast('Add an AI first');return}
+    const r=pickAI(q);chosen=r.name;
+    $('#sres').innerHTML=`<div class="card" style="padding:12px 16px"><div class="who" style="color:var(--tx)">${logo(r.name,24)}<b>${esc(cap(r.name))}</b></div><small class="mu">Picked because it is ${esc(r.why)}.</small><div class="chips" style="margin:10px 0 0">${providers.filter(p=>p.name!==r.name).map(p=>`<button class="chip" data-o="${esc(p.name)}">${esc(p.name)}</button>`).join('')}</div></div>`;
+    $('#sgo').textContent='Send to '+cap(r.name);
+    $('#sres').querySelectorAll('[data-o]').forEach(b=>b.onclick=()=>{chosen=b.dataset.o;$('#sgo').textContent='Send to '+cap(chosen);$('#sres').querySelector('b').textContent=cap(chosen);$('#sres').querySelector('small').textContent='Your choice.'})}}
+/* ---- scheduled asks (alarm + notification on this phone) ---- */
+const tasksList=()=>jget('tasks',[]);
+const nextAt=hm=>{const [h,m]=hm.split(':').map(Number),d=new Date();d.setHours(h,m,0,0);if(d.getTime()<=Date.now()+30000)d.setDate(d.getDate()+1);return d.getTime()};
+function schedule(t){try{if(A&&A.scheduleTask)A.scheduleTask(t.id,t.ai,t.prompt,t.at,!!t.daily)}catch{}}
+function rescheduleTasks(){let a=tasksList();const keep=[];a.forEach(t=>{if(t.daily){t.at=nextAt(t.time);keep.push(t);schedule(t)}else if(t.at>Date.now()){keep.push(t);schedule(t)}});localStorage.tasks=JSON.stringify(keep)}
+async function tasksView(){
+  try{if(!providers.length)providers=await api('/api/providers')}catch{}
+  const draw=()=>{const a=tasksList();$('#tl').innerHTML=a.length?a.map((t,i)=>`<div class="row plain">${logo(t.ai,30)}<div class="m"><b style="font-weight:600">${esc(t.time)} ${t.daily?'every day':'once'} · ${esc(cap(t.ai))}</b><small>${esc(t.prompt.slice(0,90))}</small></div><button class="ib" data-d="${i}" aria-label="Delete">×</button></div>`).join(''):'<p class="mu" style="padding:12px 0;margin:0">No scheduled asks yet.</p>';
+    $('#tl').querySelectorAll('[data-d]').forEach(b=>b.onclick=()=>{const a=tasksList(),t=a.splice(+b.dataset.d,1)[0];try{A&&A.cancelTask&&A.cancelTask(t.id)}catch{}localStorage.tasks=JSON.stringify(a);draw()})};
+  $('#app').innerHTML=`<div class="top"><button class="ib" id="bk" aria-label="Back">${ICON.back}</button><h1>Scheduled asks</h1></div><div class="scroll">
+  <p class="mu" style="margin:0 0 12px">At the time you choose, Relay sends a notification. Tap it and the question is sent to the AI for you. This works in the Android app and needs notifications allowed.</p>
+  <div class="card" id="tl" style="padding:4px 16px"></div>
+  <div class="sec" style="margin-top:18px">New</div>
+  <label class="fld"><span>AI</span><select id="ta1" class="in">${providers.map(p=>`<option value="${esc(p.name)}">${esc(p.name)}</option>`).join('')}</select></label>
+  <label class="fld"><span>Time</span><input id="tt" class="in" type="time" value="08:00"></label>
+  <label class="fld"><span>Question</span><textarea id="tq" class="in" style="min-height:90px" placeholder="e.g. Give me the top news about my city"></textarea></label>
+  <label class="row plain" style="padding:6px 0"><input type="checkbox" id="td" checked> <span>Repeat every day</span></label>
+  <button class="btn" id="tadd">Schedule</button></div>`;
+  $('#bk').onclick=()=>location.hash='#/settings';draw();
+  $('#tadd').onclick=()=>{const prompt=$('#tq').value.trim(),ai=$('#ta1').value,time=$('#tt').value;if(!prompt||!ai||!time){toast('Fill in the AI, time and question');return}
+    if(!(A&&A.scheduleTask)){toast('Scheduled asks need the Android app');return}
+    const a=tasksList();if(a.length>=15){toast('That is the limit');return}
+    const t={id:'t'+Date.now(),ai,prompt:prompt.slice(0,500),time,daily:$('#td').checked,at:nextAt(time)};a.push(t);localStorage.tasks=JSON.stringify(a);schedule(t);askNotif();$('#tq').value='';draw();toast('Scheduled')}}
+/* ---- voices, backup, report ---- */
+function voicesSheet(){const sp=+localStorage.vspeed||1;
+  const v=sheet(`<h2>Voices</h2><div class="mu" style="font-size:13px;margin-bottom:6px">Speed</div><div class="chips" id="vs">${[['Slow',.8],['Normal',1],['Fast',1.2],['Faster',1.4]].map(x=>`<button class="chip ${sp===x[1]?'on':''}" data-s="${x[1]}">${x[0]}</button>`).join('')}</div>`+providers.map(p=>`<div class="who" style="color:var(--mu);margin:10px 0 4px">${logo(p.name,18)}<span>${esc(cap(p.name))}</span></div><div class="chips" data-n="${esc(p.name)}" style="margin:0">${[0,1,2,3,4,5].map(i=>`<button class="chip ${localStorage['vi:'+p.name]!==undefined&&+localStorage['vi:'+p.name]===i?'on':''}" data-i="${i}">Voice ${i+1}</button>`).join('')}</div>`).join(''));
+  v.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>{localStorage.vspeed=b.dataset.s;v.querySelectorAll('[data-s]').forEach(x=>x.classList.toggle('on',x===b));Voice.stopSpeak();Voice.speak('This is the speed.',{p:1,r:1,idx:0})});
+  v.querySelectorAll('[data-i]').forEach(b=>b.onclick=()=>{const n=b.parentNode.dataset.n;localStorage['vi:'+n]=b.dataset.i;b.parentNode.querySelectorAll('.chip').forEach(x=>x.classList.toggle('on',x===b));Voice.stopSpeak();Voice.speak('Hi, I am '+cap(n)+'.',{p:1,r:1,idx:+b.dataset.i})})}
+function backupSheet(){
+  const v=sheet(`<h2>Backup &amp; restore</h2><p class="mu" style="font-size:13px">Saves your chats, rooms, notes, saved prompts and settings as text you can keep. Your sign-in is not included.</p><button class="btn" id="bkb">Back up now</button><div class="sec" style="margin-top:16px">Restore</div><textarea id="rtx" class="in" style="min-height:90px" placeholder="Paste a backup here"></textarea><button class="btn alt" id="rsb" style="margin-top:10px">Restore from backup</button>`);
+  v.querySelector('#bkb').onclick=()=>{const o={};for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(['tk','em','np','prefill','autosend','use'].includes(k))continue;o[k]=localStorage.getItem(k)}exportText('Relay backup',JSON.stringify({relayBackup:1,at:Date.now(),data:o}))};
+  v.querySelector('#rsb').onclick=async()=>{let o;try{o=JSON.parse(v.querySelector('#rtx').value.trim())}catch{toast('That is not a Relay backup');return}
+    if(!o||!o.relayBackup||!o.data){toast('That is not a Relay backup');return}
+    if(!(await ask('Restore this backup? It replaces your current chats and notes.','Restore')))return;
+    Object.keys(o.data).forEach(k=>{if(!['tk','em'].includes(k))localStorage.setItem(k,o.data[k])});toast('Restored');setTimeout(()=>location.reload(),600)}}
+function reportProblem(){const u=jget('use',{});
+  const t=['Relay problem report',new Date().toString(),'App build: '+(A&&A.version?A.version():'web'),'Page: '+location.hash,'Agent: '+navigator.userAgent,'Theme: '+(localStorage.theme||'dark'),'Screen control: '+ctlLive(),'AIs: '+providers.map(p=>p.name+(p.hasSession?'':' (signed out)')).join(', '),'Recent errors: '+(Object.keys(u).filter(n=>u[n].lastErr).map(n=>n+': '+u[n].lastErr).join(' | ')||'none')].join('\n');
+  exportText('Relay problem report',t)}
 /* in-app confirm: the Android WebView ignores window.confirm(), which is why delete did nothing */
 function ask(msg,okLabel){return new Promise(res=>{const v=sheet(`<h2 style="font-size:18px">${esc(msg)}</h2><div style="display:flex;gap:10px;margin-top:14px"><button class="btn alt" id="ano">Cancel</button><button class="btn" id="ayes">${esc(okLabel||'OK')}</button></div>`);
   let done=false;const fin=y=>{if(done)return;done=true;v.remove();res(y)};
@@ -523,7 +595,7 @@ function getRoom(id){if(RC[id])return RC[id];try{const r=JSON.parse(localStorage
 function saveRoom(r){try{localStorage['room:'+r.id]=JSON.stringify(Object.assign({},r,{msgs:r.msgs.slice(-300)}))}catch{}}
 const rtOf=id=>RTS[id]||(RTS[id]={id,run:0,active:0,lock:Promise.resolve(),typing:null,speaking:null,vm:null});
 const colorOf=(room,n)=>COLORS[Math.max(0,room.members.indexOf(n))%COLORS.length];
-const voiceOf=(room,n)=>{const i=Math.max(0,room.members.indexOf(n));return Object.assign({idx:i},VPRESETS[i%VPRESETS.length])};
+const voiceOf=(room,n)=>{const i=Math.max(0,room.members.indexOf(n)),v=Object.assign({idx:i},VPRESETS[i%VPRESETS.length]);if(localStorage['vi:'+n]!==undefined)v.idx=+localStorage['vi:'+n];return v};
 const inRoom=id=>location.hash==='#/room/'+id;
 const isMuted=(room,n)=>(room.muted||[]).includes(n);
 const activeNames=room=>room.members.filter(n=>!isMuted(room,n));
@@ -548,9 +620,9 @@ const Voice={n:0,pend:{},L:null,rec:null,
   stopListen(){const L=Voice.L;Voice.L=null;try{if(A)A.stopListen();else if(Voice.rec)Voice.rec.abort()}catch{}if(L)L.rej('stop')},
   speak(text,v){return new Promise(res=>{const id=String(++Voice.n);Voice.pend[id]=res;
     text=String(text).replace(/https?:\/\/\S+/g,'link').slice(0,3500);
-    if(A){A.speak(id,text,v.p,v.r,v.idx);return}
+    if(A){A.speak(id,text,v.p,v.r*(+localStorage.vspeed||1),v.idx);return}
     if(!window.speechSynthesis){delete Voice.pend[id];return res()}
-    const u=new SpeechSynthesisUtterance(text);u.pitch=v.p;u.rate=v.r;const vs=speechSynthesis.getVoices().filter(x=>/^en/i.test(x.lang));if(vs.length)u.voice=vs[v.idx%vs.length];
+    const u=new SpeechSynthesisUtterance(text);u.pitch=v.p;u.rate=v.r*(+localStorage.vspeed||1);const vs=speechSynthesis.getVoices().filter(x=>/^en/i.test(x.lang));if(vs.length)u.voice=vs[v.idx%vs.length];
     u.onend=u.onerror=()=>{delete Voice.pend[id];res()};speechSynthesis.speak(u)})},
   stopSpeak(){try{if(A)A.stopSpeak();else if(window.speechSynthesis)speechSynthesis.cancel()}catch{}const p=Voice.pend;Voice.pend={};Object.values(p).forEach(f=>f())}
 };
@@ -745,8 +817,9 @@ function roomView(id){
   if(!providers.length)api('/api/providers').then(p=>{providers=p;drawBar(R);drawRoom(R)}).catch(()=>{});
   $('#sd').onclick=()=>{const t=ta.value.trim();if(!t){if(R.active>0)stopRoom(R);return}ta.value='';ta.style.height='auto';converse(R,t,{})};
     $('#mic').onclick=()=>startVoice(R);
-  $('#mn').onclick=()=>{const v=sheet(`<h2>${esc(room.name)}</h2><button class="row" id="rs"><div class="m"><b>Reset conversation</b><small>Clears the room and starts fresh chats with each AI</small></div></button><button class="row" id="rro"><div class="m"><b>Roles &amp; style</b><small>Debate, brainstorm, builder and critic, or your own</small></div></button><button class="row" id="rx"><div class="m"><b>Export transcript</b></div></button><button class="row" id="rd"><div class="m"><b style="color:var(--bad)">Delete room</b></div></button>`);
+  $('#mn').onclick=()=>{const v=sheet(`<h2>${esc(room.name)}</h2><button class="row" id="rs"><div class="m"><b>Reset conversation</b><small>Clears the room and starts fresh chats with each AI</small></div></button><button class="row" id="rtp"><div class="m"><b>Topic &amp; rules</b><small>What this room is about, and any rules for it</small></div></button><button class="row" id="rro"><div class="m"><b>Roles &amp; style</b><small>Debate, brainstorm, builder and critic, or your own</small></div></button><button class="row" id="rx"><div class="m"><b>Export transcript</b></div></button><button class="row" id="rd"><div class="m"><b style="color:var(--bad)">Delete room</b></div></button>`);
     v.querySelector('#rro').onclick=()=>{v.remove();rolesSheet(R)};
+    v.querySelector('#rtp').onclick=()=>{v.remove();const w=sheet(`<h2>Topic &amp; rules</h2><textarea id="tpx" class="in" style="min-height:120px" placeholder="e.g. Plan my trip. Keep answers under 2 sentences.">${esc(room.topic||'')}</textarea><button class="btn" id="tps" style="margin-top:12px">Save</button>`);w.querySelector('#tps').onclick=()=>{room.topic=w.querySelector('#tpx').value.trim();saveRoom(room);w.remove();toast('Saved')}};
     v.querySelector('#rx').onclick=()=>{v.remove();exportText(room.name,room.msgs.filter(m=>!m.pass&&m.who!=='system').map(m=>(m.who==='user'?'You':cap(m.who))+': '+m.content).join('\n\n'))};
     const wipe=()=>Promise.all(room.members.map(n=>api('/api/playground/reset','POST',{model:n,room:room.id}).catch(()=>{})));
     v.querySelector('#rs').onclick=()=>{stopRoom(R);wipe();room.msgs=[];saveRoom(room);v.remove();drawRoom(R)};
@@ -786,6 +859,7 @@ function startVoice(R){
   if(!Voice.ok()){toast('Voice is not available here. Update the Relay app or use Chrome.');return}
   if(R.vm&&R.vm.on)return;
   const room=getRoom(R.id);
+  try{A&&A.keepOn&&A.keepOn(true)}catch{}
   R.vm={on:true,muted:false,listening:false,idle:false,caption:'',miss:0,err:0,tap:null};
   const d=document.createElement('div');d.id='vo';d.className='vo';
   d.innerHTML=`<div class="vtop"><b>${esc(room.name)}</b></div><div class="vst" id="vst"></div>
@@ -802,6 +876,7 @@ function startVoice(R){
   vmDraw(R);voiceLoop(R);
 }
 function vmClose(R){
+  try{A&&A.keepOn&&A.keepOn(false)}catch{}
   if(!R.vm)return;R.vm.on=false;Voice.stopListen();Voice.stopSpeak();R.run++;
   if(R.vm.tap){const t=R.vm.tap;R.vm.tap=null;t()}
   const d=$('#vo');if(d)d.remove();R.vm=null;
@@ -915,6 +990,9 @@ window.__go=()=>{try{const sh=A&&A.takeShare&&A.takeShare();if(sh&&tok)showShare
 setTimeout(()=>window.__go&&window.__go(),500);
 document.addEventListener('click',e=>{const b=e.target.closest&&e.target.closest('#st');if(b&&tok&&location.hash!=='#/settings'){location.hash='#/settings'}});
 window.addEventListener('unhandledrejection',e=>{try{toast(String(e.reason&&e.reason.message||e.reason||'Error').slice(0,120))}catch{}});
+setInterval(()=>{document.querySelectorAll('.wait').forEach(e=>{const t=+e.dataset.t0;if(!t)return;const n=Math.round((Date.now()-t)/1000);e.textContent=n>=8?'still working… '+n+'s':''})},1000);
+setTimeout(()=>{try{if(tok)rescheduleTasks()}catch{}},1500);
+window.__go0=window.__go;window.__go=()=>{try{const tk=A&&A.takeTask&&A.takeTask();if(tk&&tok){const i=tk.indexOf('\n');localStorage.prefill=tk.slice(i+1);localStorage.autosend='1';const h='#/chat/'+encodeURIComponent(tk.slice(0,i));if(location.hash===h)route();else location.hash=h;return}}catch{}window.__go0&&window.__go0()};
 </script>
 </body>
 </html>

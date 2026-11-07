@@ -135,6 +135,7 @@ html[data-theme=amoled] body{background:#000}
 <script>
 'use strict';
 const $=s=>document.querySelector(s), A=window.Android||null, FENCE='`'.repeat(3);
+const AB=(n,...a)=>{try{return A&&typeof A[n]==='function'?A[n](...a):undefined}catch{return undefined}};
 const ACC={violet:['#8b7bff','#36d6ff'],ocean:['#3b82f6','#22d3ee'],sunset:['#ff9f6b','#f472b6'],forest:['#34d399','#a3e635']};
 function applyTheme(){const t=localStorage.theme||'dark',a=ACC[localStorage.accent]||ACC.violet,r=document.documentElement;
   if(t==='dark')r.removeAttribute('data-theme');else r.setAttribute('data-theme',t);
@@ -436,8 +437,8 @@ function settingsView(){
    <button class="row" id="keys"><div class="m"><b>API keys &amp; logs</b><small>Open the full dashboard</small></div>›</button>
   </div>
   <div class="sec">App</div><div class="card" style="padding:4px 16px">
-   ${A?`<button class="row" id="upd"><div class="m"><b>App version ${esc(A.version())}</b><small id="vs">Checking for updates…</small></div></button>
-   <button class="row" id="srv"><div class="m"><b>Relay address</b><small>${esc(A.server())}</small></div>›</button>`:''}
+   ${A&&typeof A.version==='function'?`<button class="row" id="upd"><div class="m"><b>App version ${esc(String(AB('version')))}</b><small id="vs">Checking for updates…</small></div></button>
+   <button class="row" id="srv"><div class="m"><b>Relay address</b><small>${esc(String(AB('server')||''))}</small></div>›</button>`:''}
    <button class="row" id="rl"><div class="m"><b>Reload latest version</b><small>The app updates itself from your relay</small></div>›</button>
    <button class="row" id="lo"><div class="m"><b style="color:var(--bad)">Sign out</b></div></button>
   </div></div>`;
@@ -445,15 +446,15 @@ function settingsView(){
   const tg=(btn,id,key,def)=>{const b=$(btn);if(!b)return;b.onclick=()=>{const on=localStorage[key]===undefined?def:localStorage[key]!=='0';localStorage[key]=on?'0':'1';$(id).classList.toggle('on',!on)}};
   document.querySelectorAll('#thm .chip').forEach(c=>c.onclick=()=>{localStorage.theme=c.dataset.t;applyTheme();settingsView()});
   document.querySelectorAll('#acc .chip').forEach(c=>c.onclick=()=>{localStorage.accent=c.dataset.a;applyTheme();settingsView()});
-  if($('#scb'))$('#scb').onclick=async()=>{const on=!ctlLive();
+  if($('#scb'))$('#scb').onclick=async()=>{if(typeof A.a11yConnected!=='function'||typeof A.setCtl!=='function'){toast('Update the Relay app to use screen control');return}const on=!ctlLive();
     if(on&&!A.a11yConnected()){if(await ask('First turn on “Relay screen control” in Android Accessibility settings. Android will show a warning, and Relay only acts when you press Run on an action.','Open settings')){A.setCtl(true);A.openA11y()}return}
     A.setCtl(on);$('#sc').classList.toggle('on',on)};
   tg('#vbgb','#vbg','vbg',true);tg('#pcb','#pc','pc',true);tg('#pab','#pa','pcask',true);
   $('#dash').onclick=()=>location.href='/#/providers';$('#keys').onclick=()=>location.href='/#/keys';
-  if($('#srv'))$('#srv').onclick=()=>A.setServer();
-  if($('#lkb'))$('#lkb').onclick=()=>{const on=!A.lockOn();A.setLock(on);$('#lk').classList.toggle('on',on)};
+  if($('#srv'))$('#srv').onclick=()=>AB('setServer');
+  if($('#lkb'))$('#lkb').onclick=()=>{if(typeof A.lockOn!=='function'){toast('Update the Relay app to use app lock');return}const on=!AB('lockOn');AB('setLock',on);$('#lk').classList.toggle('on',on)};
   if($('#upd'))checkUpdate().then(u=>{const el=$('#vs');if(!el)return;
-    if(u){el.textContent='Update available (build '+u.latest+'). Tap to download.';$('#upd').onclick=()=>A.openExternalUrl(u.url)}
+    if(u){el.textContent='Update available (build '+u.latest+'). Tap to download.';$('#upd').onclick=()=>AB('openExternalUrl',u.url)}
     else el.textContent=u===false?'You have the latest version':'Could not check for updates'});
   $('#rl').onclick=()=>location.reload();$('#lo').onclick=()=>{ask('Sign out of Relay?','Sign out').then(y=>{if(y)logout()})};
 }
@@ -982,7 +983,7 @@ async function checkUpdate(){
   if(!A||!A.version)return null;
   try{
     const j=await (await fetch('https://api.github.com/repos/Doreenats232/relayapi/releases/tags/app-latest')).json();
-    const m=/build (\d+)/.exec(j.body||''),latest=m?+m[1]:0,cur=+A.version(),a=(j.assets||[]).find(x=>x.name==='RelayApp.apk');
+    const m=/build (\d+)/.exec(j.body||''),latest=m?+m[1]:0,cur=+AB('version'),a=(j.assets||[]).find(x=>x.name==='RelayApp.apk');
     return latest>cur&&a?{latest,url:a.browser_download_url}:false;
   }catch{return null}
 }

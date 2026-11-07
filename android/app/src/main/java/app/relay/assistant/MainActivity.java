@@ -80,6 +80,7 @@ public class MainActivity extends Activity {
     private String pendingGo = null;
     private String pendingShare = null;
     private String pendingTask = null;
+    private boolean wantVoiceBg = false;
     private LinearLayout lockView;
     private final Handler ui = new Handler(Looper.getMainLooper());
 
@@ -369,6 +370,9 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface public void scheduleTask(String id, String ai, String prompt, double atMs, boolean daily) {
             try {
+                org.json.JSONObject o = new org.json.JSONObject();
+                o.put("ai", ai); o.put("prompt", prompt); o.put("at", (long) atMs); o.put("daily", daily);
+                getSharedPreferences("tasks", MODE_PRIVATE).edit().putString(id, o.toString()).apply();
                 Intent i = new Intent(MainActivity.this, TaskReceiver.class);
                 i.putExtra("id", id);
                 i.putExtra("ai", ai);
@@ -383,11 +387,20 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface public void cancelTask(String id) {
             try {
+                getSharedPreferences("tasks", MODE_PRIVATE).edit().remove(id).apply();
                 Intent i = new Intent(MainActivity.this, TaskReceiver.class);
                 PendingIntent pi = PendingIntent.getBroadcast(MainActivity.this, id.hashCode(), i,
                         PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
                 ((AlarmManager) getSystemService(Context.ALARM_SERVICE)).cancel(pi);
             } catch (Exception ignored) { }
+        }
+
+        @JavascriptInterface public void voiceBg(final boolean on) {
+            ui.post(() -> {
+                if (!on) { wantVoiceBg = false; stopService(new Intent(MainActivity.this, VoiceService.class)); return; }
+                if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) startForegroundService(new Intent(MainActivity.this, VoiceService.class));
+                else wantVoiceBg = true;
+            });
         }
 
         @JavascriptInterface public String takeTask() { String g = pendingTask; pendingTask = null; return g == null ? "" : g; }
@@ -570,6 +583,10 @@ public class MainActivity extends Activity {
     public void onRequestPermissionsResult(int code, String[] perms, int[] res) {
         super.onRequestPermissionsResult(code, perms, res);
         if (code == 77) return;
+        if (wantVoiceBg && res.length > 0 && res[0] == PackageManager.PERMISSION_GRANTED && perms.length > 0 && android.Manifest.permission.RECORD_AUDIO.equals(perms[0])) {
+            wantVoiceBg = false;
+            try { startForegroundService(new Intent(this, VoiceService.class)); } catch (Exception ignored) { }
+        }
         if (code != 7) return;
         if (res.length > 0 && res[0] == PackageManager.PERMISSION_GRANTED) startRec();
         else js("window.__heardErr('perm')");

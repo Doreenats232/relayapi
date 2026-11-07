@@ -49,6 +49,7 @@ const buildState = (raw, storageRaw, url) => {
 };
 const app = express();
 app.use('/api/playground', express.json({ limit: '28mb' }));
+app.use('/api/backup', express.json({ limit: '6mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use((req, res, next) => { res.set('Access-Control-Allow-Origin', '*'); res.set('Access-Control-Expose-Headers', 'X-Relay-Mode'); res.set('Access-Control-Allow-Headers', 'Authorization,Content-Type,X-Conversation-Id'); if (req.method === 'OPTIONS') return res.sendStatus(204); next(); });
 app.use(express.static(path.join(__dirname, 'public')));
@@ -155,6 +156,19 @@ function auth(req, res, next) {
 
 // ---------- providers ----------
 app.get('/api/providers', auth, (req, res) => res.json(db.providers.filter(p => p.userId === req.uid).map(({ cookies, ...p }) => ({ ...p, hasSession: !!cookies }))));
+// one saved app backup per user (encrypted at rest); only survives restarts if Turso storage is configured
+app.get('/api/backup', auth, (req, res) => {
+  const x = (db.backups || {})[req.uid];
+  if (!x) return res.json({ at: 0, size: 0, persistent: !!TURSO });
+  let data = ''; try { data = dec(x.d); } catch {}
+  res.json({ at: x.at, size: x.size, persistent: !!TURSO, data });
+});
+app.put('/api/backup', auth, (req, res) => {
+  const data = String((req.body || {}).data || '');
+  if (!data || data.length > 5 * 1024 * 1024) return res.status(400).json({ error: 'Backup is empty or too large (5 MB max)' });
+  db.backups = db.backups || {}; db.backups[req.uid] = { at: Date.now(), size: data.length, d: enc(data) }; save();
+  res.json({ ok: true, at: db.backups[req.uid].at, persistent: !!TURSO });
+});
 app.post('/api/providers', auth, (req, res) => {
   const { name, url, cookies } = req.body || {}, cl = v => /^(blank|auto|none|optional|n\/a)\b|press enter|auto-detect/i.test(String(v || '').trim()) ? '' : String(v || '').trim(), inputSel = cl(req.body.inputSel), sendSel = cl(req.body.sendSel), responseSel = cl(req.body.responseSel);
   let ck = ''; try { ck = buildState(cookies, req.body.storage, url); } catch (e) { return res.status(400).json({ error: e.message }); }

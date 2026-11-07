@@ -328,6 +328,7 @@ async function chatView(pn){
   function bubble(m,i){
     if(m.pending&&!m.content)return `<div class="who" style="color:var(--mu)">${logo(pn,18)}<span>${esc(cap(pn))}</span></div><div class="msg assistant"><span class="typing"><i></i><i></i><i></i></span><small class="wait" data-t0="${m.t0||''}" style="color:var(--mu);margin-left:10px"></small></div>`;
     let h=(m.role==='assistant'&&!m.err?`<div class="who" style="color:var(--mu)">${logo(pn,18)}<span>${esc(cap(pn))}</span></div>`:'')+`<div class="msg ${m.role}${m.err?' err':''}" data-i="${i}">${m.role==='assistant'&&!m.err?md(m.content):esc(m.content)}</div>`;
+    if(m.role==='user'&&!busy&&i===msgs.map(x=>x.role).lastIndexOf('user'))h+=`<div class="mact" style="justify-content:flex-end"><button data-ed="${i}">Edit</button></div>`;
     if(m.role==='assistant'&&!m.pending&&!m.err&&m.content)h+=`<div class="mact"><button data-cp="${i}">Copy</button>${i===msgs.length-1?'<button data-rt="1">Retry</button>':''}</div>`;
     if(m.err&&authLike(m.content))h+=`<div class="act"><span>${esc(cap(pn))} may need signing in again</span><button class="btn sm" data-go="1">Sign in</button></div>`;
     if(m.role==='assistant'&&!m.pending&&!m.err&&phoneOn()){
@@ -340,6 +341,7 @@ async function chatView(pn){
     chat.innerHTML=msgs.length?msgs.map(bubble).join(''):`<div class="empty">${orb()}<b style="color:var(--tx);font-size:18px">Talk to ${esc(pn)}</b><p>This chat stays open on ${esc(pn)}, so it remembers the conversation.</p></div>`;
     chat.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>location.href='/#/providers');
     chat.querySelectorAll('.act button:not([data-go])').forEach(b=>b.onclick=()=>{const m=msgs[b.dataset.i],a=actionsOf(m.content)[b.dataset.k];m.done=m.done||{};const res=runAction(a);m.done[b.dataset.k]=res;store(pn,msgs);draw();if(a.action==='read_screen'&&!busy&&!/^(Screen control|Accessibility|Could not)/.test(res)){ta.value='Here is what the screen shows:\n'+res;send()}});
+    chat.querySelectorAll('[data-ed]').forEach(b=>b.onclick=()=>{if(busy)return;const i=+b.dataset.ed,u=msgs[i];msgs.splice(i);store(pn,msgs);ta.value=u.content.replace(/\n📎 .*$/,'');draw();ta.focus();ta.oninput&&ta.oninput();toast('Edit it and send again')});
     chat.querySelectorAll('[data-cp]').forEach(b=>b.onclick=()=>copyText(msgs[+b.dataset.cp].content));
     chat.querySelectorAll('[data-rt]').forEach(b=>b.onclick=()=>{if(busy)return;const i=msgs.length-1,u=msgs[i-1];if(!u||u.role!=='user')return;msgs.splice(i-1,2);store(pn,msgs);ta.value=u.content.replace(/\n📎 .*$/,'');draw();send()});
     chat.scrollTop=chat.scrollHeight;if(typeof drawQuick==='function')drawQuick();
@@ -419,6 +421,7 @@ function settingsView(){
    <button class="row" id="rr"><div class="m"><b>Rule room</b><small>Write extra rules every AI must follow</small></div>›</button>
    <button class="row" id="memb"><div class="m"><b>Memory &amp; saved prompts</b><small>Notes every AI knows about you, and prompts you reuse</small></div>›</button>
    <button class="row" id="tkb"><div class="m"><b>Scheduled asks</b><small>A notification at a set time that sends your question to an AI</small></div>›</button>
+   <button class="row" id="vbgb"><div class="m"><b>Voice keeps running in the background</b><small>Lets a voice meeting continue with the screen off or in another app. Shows a notification while it runs.</small></div>${sw('vbg',localStorage.vbg!=='0')}</button>
    <button class="row" id="vcb"><div class="m"><b>Voices</b><small>Speed, and which voice each AI uses</small></div>›</button>
    <button class="row" id="bub"><div class="m"><b>Backup &amp; restore</b><small>Keep your chats, notes and settings safe</small></div>›</button>
    <button class="row" id="rpb"><div class="m"><b>Report a problem</b><small>Shares a short report you can send me</small></div>›</button>
@@ -445,7 +448,7 @@ function settingsView(){
   if($('#scb'))$('#scb').onclick=async()=>{const on=!ctlLive();
     if(on&&!A.a11yConnected()){if(await ask('First turn on “Relay screen control” in Android Accessibility settings. Android will show a warning, and Relay only acts when you press Run on an action.','Open settings')){A.setCtl(true);A.openA11y()}return}
     A.setCtl(on);$('#sc').classList.toggle('on',on)};
-  tg('#pcb','#pc','pc',true);tg('#pab','#pa','pcask',true);
+  tg('#vbgb','#vbg','vbg',true);tg('#pcb','#pc','pc',true);tg('#pab','#pa','pcask',true);
   $('#dash').onclick=()=>location.href='/#/providers';$('#keys').onclick=()=>location.href='/#/keys';
   if($('#srv'))$('#srv').onclick=()=>A.setServer();
   if($('#lkb'))$('#lkb').onclick=()=>{const on=!A.lockOn();A.setLock(on);$('#lk').classList.toggle('on',on)};
@@ -561,13 +564,23 @@ function voicesSheet(){const sp=+localStorage.vspeed||1;
   const v=sheet(`<h2>Voices</h2><div class="mu" style="font-size:13px;margin-bottom:6px">Speed</div><div class="chips" id="vs">${[['Slow',.8],['Normal',1],['Fast',1.2],['Faster',1.4]].map(x=>`<button class="chip ${sp===x[1]?'on':''}" data-s="${x[1]}">${x[0]}</button>`).join('')}</div>`+providers.map(p=>`<div class="who" style="color:var(--mu);margin:10px 0 4px">${logo(p.name,18)}<span>${esc(cap(p.name))}</span></div><div class="chips" data-n="${esc(p.name)}" style="margin:0">${[0,1,2,3,4,5].map(i=>`<button class="chip ${localStorage['vi:'+p.name]!==undefined&&+localStorage['vi:'+p.name]===i?'on':''}" data-i="${i}">Voice ${i+1}</button>`).join('')}</div>`).join(''));
   v.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>{localStorage.vspeed=b.dataset.s;v.querySelectorAll('[data-s]').forEach(x=>x.classList.toggle('on',x===b));Voice.stopSpeak();Voice.speak('This is the speed.',{p:1,r:1,idx:0})});
   v.querySelectorAll('[data-i]').forEach(b=>b.onclick=()=>{const n=b.parentNode.dataset.n;localStorage['vi:'+n]=b.dataset.i;b.parentNode.querySelectorAll('.chip').forEach(x=>x.classList.toggle('on',x===b));Voice.stopSpeak();Voice.speak('Hi, I am '+cap(n)+'.',{p:1,r:1,idx:+b.dataset.i})})}
+function collectBackup(){const o={};for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(['tk','em','np','prefill','autosend','use','lastbk'].includes(k))continue;o[k]=localStorage.getItem(k)}return JSON.stringify({relayBackup:1,at:Date.now(),data:o})}
+function applyBackup(txt){let o;try{o=JSON.parse(txt)}catch{return false}if(!o||!o.relayBackup||!o.data)return false;Object.keys(o.data).forEach(k=>{if(!['tk','em'].includes(k))localStorage.setItem(k,o.data[k])});return true}
+async function cloudSave(){const r=await api('/api/backup','PUT',{data:collectBackup()});localStorage.lastbk=String(Date.now());return r}
+async function autoBackup(){try{if(localStorage.autobk==='1'&&Date.now()-(+localStorage.lastbk||0)>20*3600*1000)await cloudSave()}catch{}}
 function backupSheet(){
-  const v=sheet(`<h2>Backup &amp; restore</h2><p class="mu" style="font-size:13px">Saves your chats, rooms, notes, saved prompts and settings as text you can keep. Your sign-in is not included.</p><button class="btn" id="bkb">Back up now</button><div class="sec" style="margin-top:16px">Restore</div><textarea id="rtx" class="in" style="min-height:90px" placeholder="Paste a backup here"></textarea><button class="btn alt" id="rsb" style="margin-top:10px">Restore from backup</button>`);
-  v.querySelector('#bkb').onclick=()=>{const o={};for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(['tk','em','np','prefill','autosend','use'].includes(k))continue;o[k]=localStorage.getItem(k)}exportText('Relay backup',JSON.stringify({relayBackup:1,at:Date.now(),data:o}))};
+  const v=sheet(`<h2>Backup &amp; restore</h2><p class="mu" style="font-size:13px">Saves your chats, rooms, notes, saved prompts and settings as text you can keep. Your sign-in is not included.</p><button class="btn" id="bkb">Back up as text</button><div class="sec" style="margin-top:16px">On my relay</div><div id="cbi" class="mu" style="font-size:13px;margin-bottom:8px">Checking…</div><div style="display:flex;gap:8px"><button class="btn alt" id="cbs">Save now</button><button class="btn alt" id="cbr">Restore</button></div><label class="row plain" style="padding:10px 0"><input type="checkbox" id="cba" ${localStorage.autobk==='1'?'checked':''}> <span>Back up automatically every day</span></label><div class="sec" style="margin-top:16px">Restore</div><textarea id="rtx" class="in" style="min-height:90px" placeholder="Paste a backup here"></textarea><button class="btn alt" id="rsb" style="margin-top:10px">Restore from backup</button>`);
+  v.querySelector('#bkb').onclick=()=>exportText('Relay backup',collectBackup());
+  const info=async()=>{try{const r=await api('/api/backup');v.querySelector('#cbi').textContent=(r.at?'Last saved '+new Date(r.at).toLocaleString()+' ('+Math.round(r.size/1024)+' KB).':'Nothing saved yet.')+(r.persistent?'':' Warning: your relay does not keep data across restarts yet, so this backup can be lost. Connect Turso storage to make it permanent.')}catch(e){v.querySelector('#cbi').textContent='Could not reach your relay.'}};info();
+  v.querySelector('#cbs').onclick=async()=>{try{await cloudSave();toast('Saved to your relay');info()}catch(e){toast(e.message)}};
+  v.querySelector('#cbr').onclick=async()=>{try{const r=await api('/api/backup');if(!r.at||!r.data){toast('Nothing saved on your relay yet');return}
+    if(!(await ask('Restore the backup saved on your relay? It replaces your current chats and notes.','Restore')))return;
+    if(applyBackup(r.data)){toast('Restored');setTimeout(()=>location.reload(),600)}else toast('That backup is damaged')}catch(e){toast(e.message)}};
+  v.querySelector('#cba').onchange=e=>{localStorage.autobk=e.target.checked?'1':'0';if(e.target.checked)cloudSave().then(info).catch(()=>{})};
   v.querySelector('#rsb').onclick=async()=>{let o;try{o=JSON.parse(v.querySelector('#rtx').value.trim())}catch{toast('That is not a Relay backup');return}
     if(!o||!o.relayBackup||!o.data){toast('That is not a Relay backup');return}
     if(!(await ask('Restore this backup? It replaces your current chats and notes.','Restore')))return;
-    Object.keys(o.data).forEach(k=>{if(!['tk','em'].includes(k))localStorage.setItem(k,o.data[k])});toast('Restored');setTimeout(()=>location.reload(),600)}}
+    applyBackup(JSON.stringify(o));toast('Restored');setTimeout(()=>location.reload(),600)}}
 function reportProblem(){const u=jget('use',{});
   const t=['Relay problem report',new Date().toString(),'App build: '+(A&&A.version?A.version():'web'),'Page: '+location.hash,'Agent: '+navigator.userAgent,'Theme: '+(localStorage.theme||'dark'),'Screen control: '+ctlLive(),'AIs: '+providers.map(p=>p.name+(p.hasSession?'':' (signed out)')).join(', '),'Recent errors: '+(Object.keys(u).filter(n=>u[n].lastErr).map(n=>n+': '+u[n].lastErr).join(' | ')||'none')].join('\n');
   exportText('Relay problem report',t)}
@@ -859,7 +872,7 @@ function startVoice(R){
   if(!Voice.ok()){toast('Voice is not available here. Update the Relay app or use Chrome.');return}
   if(R.vm&&R.vm.on)return;
   const room=getRoom(R.id);
-  try{A&&A.keepOn&&A.keepOn(true)}catch{}
+  try{A&&A.keepOn&&A.keepOn(true);if(A&&A.voiceBg&&localStorage.vbg!=='0')A.voiceBg(true)}catch{}
   R.vm={on:true,muted:false,listening:false,idle:false,caption:'',miss:0,err:0,tap:null};
   const d=document.createElement('div');d.id='vo';d.className='vo';
   d.innerHTML=`<div class="vtop"><b>${esc(room.name)}</b></div><div class="vst" id="vst"></div>
@@ -876,7 +889,7 @@ function startVoice(R){
   vmDraw(R);voiceLoop(R);
 }
 function vmClose(R){
-  try{A&&A.keepOn&&A.keepOn(false)}catch{}
+  try{A&&A.keepOn&&A.keepOn(false);A&&A.voiceBg&&A.voiceBg(false)}catch{}
   if(!R.vm)return;R.vm.on=false;Voice.stopListen();Voice.stopSpeak();R.run++;
   if(R.vm.tap){const t=R.vm.tap;R.vm.tap=null;t()}
   const d=$('#vo');if(d)d.remove();R.vm=null;
@@ -991,7 +1004,7 @@ setTimeout(()=>window.__go&&window.__go(),500);
 document.addEventListener('click',e=>{const b=e.target.closest&&e.target.closest('#st');if(b&&tok&&location.hash!=='#/settings'){location.hash='#/settings'}});
 window.addEventListener('unhandledrejection',e=>{try{toast(String(e.reason&&e.reason.message||e.reason||'Error').slice(0,120))}catch{}});
 setInterval(()=>{document.querySelectorAll('.wait').forEach(e=>{const t=+e.dataset.t0;if(!t)return;const n=Math.round((Date.now()-t)/1000);e.textContent=n>=8?'still working… '+n+'s':''})},1000);
-setTimeout(()=>{try{if(tok)rescheduleTasks()}catch{}},1500);
+setTimeout(()=>{try{if(tok){rescheduleTasks();autoBackup()}}catch{}},1500);
 window.__go0=window.__go;window.__go=()=>{try{const tk=A&&A.takeTask&&A.takeTask();if(tk&&tok){const i=tk.indexOf('\n');localStorage.prefill=tk.slice(i+1);localStorage.autosend='1';const h='#/chat/'+encodeURIComponent(tk.slice(0,i));if(location.hash===h)route();else location.hash=h;return}}catch{}window.__go0&&window.__go0()};
 </script>
 </body>

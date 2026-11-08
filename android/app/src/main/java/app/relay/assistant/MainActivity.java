@@ -81,6 +81,7 @@ public class MainActivity extends Activity {
     private String pendingShare = null;
     private String pendingTask = null;
     private boolean wantVoiceBg = false;
+    private Uri camUri = null;
     private LinearLayout lockView;
     private final Handler ui = new Handler(Looper.getMainLooper());
 
@@ -111,6 +112,22 @@ public class MainActivity extends Activity {
             public boolean onShowFileChooser(WebView w, ValueCallback<Uri[]> cb, FileChooserParams p) {
                 if (filePathCb != null) filePathCb.onReceiveValue(null);
                 filePathCb = cb;
+                if (p.isCaptureEnabled() && android.os.Build.VERSION.SDK_INT >= 29) {
+                    try {
+                        android.content.ContentValues cv = new android.content.ContentValues();
+                        cv.put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, "relay_" + System.currentTimeMillis() + ".jpg");
+                        cv.put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+                        cv.put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Relay");
+                        camUri = getContentResolver().insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cv);
+                        Intent ci = new Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE);
+                        ci.putExtra(android.provider.MediaStore.EXTRA_OUTPUT, camUri);
+                        startActivityForResult(ci, 56);
+                        return true;
+                    } catch (Exception e) {
+                        filePathCb = null;
+                        return false;
+                    }
+                }
                 try {
                     startActivityForResult(p.createIntent(), 55);
                 } catch (Exception e) {
@@ -361,6 +378,8 @@ public class MainActivity extends Activity {
             ui.post(() -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)));
         }
 
+        @JavascriptInterface public boolean hasCamera() { return android.os.Build.VERSION.SDK_INT >= 29; }
+
         @JavascriptInterface public void keepOn(final boolean on) {
             ui.post(() -> {
                 if (on) getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -489,6 +508,18 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
+        if (req == 56) {
+            if (filePathCb != null) {
+                if (res == RESULT_OK && camUri != null) filePathCb.onReceiveValue(new Uri[]{camUri});
+                else {
+                    filePathCb.onReceiveValue(null);
+                    if (camUri != null) { try { getContentResolver().delete(camUri, null, null); } catch (Exception ignored) { } }
+                }
+                filePathCb = null;
+            }
+            camUri = null;
+            return;
+        }
         if (req == 55) {
             if (filePathCb != null) { filePathCb.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(res, data)); filePathCb = null; }
             return;

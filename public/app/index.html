@@ -8,10 +8,10 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-:root{--ink:#0c0d14;--s1:#14162299;--s2:#171a2b;--s3:#1e2238;--ln:#262a43;--tx:#eceefb;--mu:#8a90b2;--a1:#8b7bff;--a2:#36d6ff;--ok:#4ade80;--bad:#ff6b81;--r:18px}
+:root{--ink:#0c0d14;--s1:#14162299;--s2:#171a2b;--s3:#1e2238;--ln:#262a43;--tx:#eceefb;--mu:#8a90b2;--a1:#22c55e;--a2:#86efac;--glow1:#0f5a3aaa;--glow2:#0b6a4a77;--glow3:#14783acc;--ok:#4ade80;--bad:#ff6b81;--r:18px}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%;background:var(--ink);color:var(--tx);font:15px/1.5 Outfit,system-ui,-apple-system,Roboto,sans-serif;overscroll-behavior:none}
-body{background:radial-gradient(900px 420px at 85% -10%,#2a2170aa,transparent 60%),radial-gradient(700px 380px at -10% 110%,#0b4f6a77,transparent 60%),var(--ink)}
+body{background:radial-gradient(900px 420px at 85% -10%,var(--glow1),transparent 60%),radial-gradient(700px 380px at -10% 110%,var(--glow2),transparent 60%),var(--ink)}
 #app{height:100dvh;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top)}
 button,input,textarea,select{font:inherit;color:inherit}
 button{cursor:pointer;border:0;background:none}
@@ -110,7 +110,7 @@ html[data-theme=amoled] body{background:#000}
 .mact{display:flex;gap:16px;margin:-4px 6px 10px;font-size:12px}.mact button{background:none;color:var(--mu);padding:3px 0}
 .row.plain{display:flex;align-items:center;gap:10px}.row.plain .ib{width:34px;height:34px;flex:none}
 .who{font-size:12px;margin:2px 8px -4px;font-weight:600}
-.vo{position:fixed;inset:0;z-index:40;display:flex;flex-direction:column;align-items:center;padding:calc(18px + env(safe-area-inset-top)) 20px calc(22px + env(safe-area-inset-bottom));background:radial-gradient(700px 520px at 50% 36%,#3a2c9acc,transparent 65%),#080913}
+.vo{position:fixed;inset:0;z-index:40;display:flex;flex-direction:column;align-items:center;padding:calc(18px + env(safe-area-inset-top)) 20px calc(22px + env(safe-area-inset-bottom));background:radial-gradient(700px 520px at 50% 36%,var(--glow3),transparent 65%),#080913}
 .vtop{font-size:17px}.vst{color:var(--mu);margin-top:6px;min-height:24px}
 .vorb{margin:auto 0 0;width:210px;height:210px;border-radius:50%;position:relative;display:grid;place-items:center}
 .vcore{width:150px;height:150px;border-radius:50%;background:linear-gradient(135deg,var(--a1),var(--a2));display:grid;place-items:center;box-shadow:0 0 60px #8b7bffaa;position:relative;z-index:1}
@@ -136,10 +136,10 @@ html[data-theme=amoled] body{background:#000}
 'use strict';
 const $=s=>document.querySelector(s), A=window.Android||null, FENCE='`'.repeat(3);
 const AB=(n,...a)=>{try{return A&&typeof A[n]==='function'?A[n](...a):undefined}catch{return undefined}};
-const ACC={violet:['#8b7bff','#36d6ff'],ocean:['#3b82f6','#22d3ee'],sunset:['#ff9f6b','#f472b6'],forest:['#34d399','#a3e635']};
-function applyTheme(){const t=localStorage.theme||'dark',a=ACC[localStorage.accent]||ACC.violet,r=document.documentElement;
+const ACC={green:['#22c55e','#86efac','#0f5a3aaa','#0b6a4a77','#14783acc'],violet:['#8b7bff','#36d6ff','#2a2170aa','#0b4f6a77','#3a2c9acc'],ocean:['#3b82f6','#22d3ee','#1e3a8aaa','#0b4f6a77','#1d4ed8cc'],sunset:['#ff9f6b','#f472b6','#7c2d12aa','#831843aa','#9a3412cc']};
+function applyTheme(){const t=localStorage.theme||'dark',a=ACC[localStorage.accent2]||ACC.green,r=document.documentElement;
   if(t==='dark')r.removeAttribute('data-theme');else r.setAttribute('data-theme',t);
-  r.style.setProperty('--a1',a[0]);r.style.setProperty('--a2',a[1]);
+  r.style.setProperty('--a1',a[0]);r.style.setProperty('--a2',a[1]);r.style.setProperty('--glow1',a[2]);r.style.setProperty('--glow2',a[3]);r.style.setProperty('--glow3',a[4]);
   const m=document.querySelector('meta[name=theme-color]');if(m)m.content=t==='light'?'#f4f5fb':t==='amoled'?'#000000':'#0c0d14'}
 applyTheme();
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -422,7 +422,7 @@ function settingsView(){
   <div class="card" style="display:flex;gap:12px;align-items:center">${localStorage.pic?`<img src="${esc(localStorage.pic)}" referrerpolicy="no-referrer" style="width:46px;height:46px;border-radius:50%">`:`<div class="av" style="border-radius:50%">${esc((email||'?')[0].toUpperCase())}</div>`}<div style="min-width:0"><b>Signed in</b><div class="mu" style="overflow:hidden;text-overflow:ellipsis">${esc(email)}</div></div></div>
   <div class="sec">Appearance</div><div class="card" style="padding:14px 16px">
    <div class="mu" style="font-size:13px;margin-bottom:8px">Theme</div><div class="chips" id="thm">${[['dark','Dark'],['light','Light'],['amoled','Black']].map(t=>`<button class="chip ${(localStorage.theme||'dark')===t[0]?'on':''}" data-t="${t[0]}">${t[1]}</button>`).join('')}</div>
-   <div class="mu" style="font-size:13px;margin-bottom:8px">Colour</div><div class="chips" id="acc" style="margin:0">${Object.keys(ACC).map(k=>`<button class="chip ${(localStorage.accent||'violet')===k?'on':''}" data-a="${k}">${cap(k)}</button>`).join('')}</div>
+   <div class="mu" style="font-size:13px;margin-bottom:8px">Colour</div><div class="chips" id="acc" style="margin:0">${Object.keys(ACC).map(k=>`<button class="chip ${(localStorage.accent2||'green')===k?'on':''}" data-a="${k}">${cap(k)}</button>`).join('')}</div>
   </div>
   <div class="sec">Behaviour</div><div class="card" style="padding:4px 16px">
    <button class="row" id="rr"><div class="m"><b>Rule room</b><small>Write extra rules every AI must follow</small></div>›</button>
@@ -451,7 +451,7 @@ function settingsView(){
   $('#bk').onclick=()=>location.hash='#/';$('#rr').onclick=()=>location.hash='#/rules';$('#memb').onclick=()=>location.hash='#/memory';$('#usgb').onclick=usageSheet;$('#tkb').onclick=()=>location.hash='#/tasks';$('#vcb').onclick=voicesSheet;$('#bub').onclick=backupSheet;$('#rpb').onclick=reportProblem;
   const tg=(btn,id,key,def)=>{const b=$(btn);if(!b)return;b.onclick=()=>{const on=localStorage[key]===undefined?def:localStorage[key]!=='0';localStorage[key]=on?'0':'1';$(id).classList.toggle('on',!on)}};
   document.querySelectorAll('#thm .chip').forEach(c=>c.onclick=()=>{localStorage.theme=c.dataset.t;applyTheme();settingsView()});
-  document.querySelectorAll('#acc .chip').forEach(c=>c.onclick=()=>{localStorage.accent=c.dataset.a;applyTheme();settingsView()});
+  document.querySelectorAll('#acc .chip').forEach(c=>c.onclick=()=>{localStorage.accent2=c.dataset.a;applyTheme();settingsView()});
   if($('#scb'))$('#scb').onclick=async()=>{if(typeof A.a11yConnected!=='function'||typeof A.setCtl!=='function'){toast('Update the Relay app to use screen control');return}const on=!ctlLive();
     if(on&&!A.a11yConnected()){if(await ask('First turn on “Relay screen control” in Android Accessibility settings. Android will show a warning, and Relay only acts when you press Run on an action.','Open settings')){A.setCtl(true);A.openA11y()}return}
     A.setCtl(on);$('#sc').classList.toggle('on',on)};

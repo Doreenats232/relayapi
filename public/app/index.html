@@ -395,7 +395,7 @@ async function chatView(pn){
     }catch(e){delete me.pending;me.content=e.message;me.err=true;useStat(pn,false,e.message)}
     busy=false;store(pn,msgs);
     if(sv&&sv.on&&!me.err&&me.content)sv.say=extract(me.content).text;
-    else if(spOn()&&!me.err&&me.content)Voice.speak(extract(me.content).text,{p:1,r:1,idx:+localStorage['vi:'+pn]||0});
+    else if(spOn()&&!me.err&&me.content)Voice.speak(extract(me.content).text,{p:1,r:1,idx:soloIdx(pn),n:pn});
     if(cur===pn){const sd=$('#sd');if(sd)sd.disabled=false;draw();
       if(phoneOn()&&!askFirst()&&!me.err){const as=actionsOf(me.content);me.done={};as.forEach((a,k)=>{if(!SCREEN.has(a.action))me.done[k]=runAction(a)});store(pn,msgs);draw()}}
   }
@@ -450,7 +450,7 @@ async function chatView(pn){
       if(!me.on)break;
       const last=msgs[msgs.length-1];
       if(last&&last.err){me.caption=String(last.content).slice(0,140);svDraw();await sleep(2500)}
-      else if(me.say){me.speaking=true;me.caption=cap(pn)+': '+me.say;svDraw();await Voice.speak(me.say,{p:1,r:1,idx:+localStorage['vi:'+pn]||0});me.speaking=false}
+      else if(me.say){me.speaking=true;me.caption=cap(pn)+': '+me.say;svDraw();await Voice.speak(me.say,{p:1,r:1,idx:soloIdx(pn),n:pn});me.speaking=false}
       me.say='';svDraw()}}
   $('#vc').onclick=svStart;
   const pinI=()=>{$('#pin').textContent=jget('pins',[]).includes(pn)?'★':'☆'};pinI();
@@ -490,7 +490,7 @@ function settingsView(){
    <button class="row" id="memb"><div class="m"><b>Memory &amp; saved prompts</b><small>Notes every AI knows about you, and prompts you reuse</small></div>›</button>
    <button class="row" id="tkb"><div class="m"><b>Scheduled asks</b><small>A notification at a set time that sends your question to an AI</small></div>›</button>
    <button class="row" id="vbgb"><div class="m"><b>Voice keeps running in the background</b><small>Lets a voice meeting continue with the screen off or in another app. Shows a notification while it runs.</small></div>${sw('vbg',localStorage.vbg!=='0')}</button>
-   <button class="row" id="vcb"><div class="m"><b>Voices</b><small>Speed, and which voice each AI uses</small></div>›</button>
+   <button class="row" id="vcb"><div class="m"><b>Voices</b><small>Phone or human voice, speed, and a voice for each AI</small></div>›</button>
    <button class="row" id="bub"><div class="m"><b>Backup &amp; restore</b><small>Keep your chats, notes and settings safe</small></div>›</button>
    <button class="row" id="rpb"><div class="m"><b>Report a problem</b><small>Shares a short report you can send me</small></div>›</button>
    <button class="row" id="usgb"><div class="m"><b>Usage</b><small>Replies, errors and sign-in problems per AI</small></div>›</button>
@@ -628,14 +628,18 @@ async function tasksView(){
     const a=tasksList();if(a.length>=15){toast('That is the limit');return}
     const t={id:'t'+Date.now(),ai,prompt:prompt.slice(0,500),time,daily:$('#td').checked,at:nextAt(time)};a.push(t);localStorage.tasks=JSON.stringify(a);schedule(t);askNotif();$('#tq').value='';draw();toast('Scheduled')}}
 /* ---- voices, backup, report ---- */
-function voicesSheet(){const sp=+localStorage.vspeed||1;
-  const v=sheet(`<h2>Voices</h2><div class="mu" style="font-size:13px;margin-bottom:6px">Speed</div><div class="chips" id="vs">${[['Slow',.8],['Normal',1],['Fast',1.2],['Faster',1.4]].map(x=>`<button class="chip ${sp===x[1]?'on':''}" data-s="${x[1]}">${x[0]}</button>`).join('')}</div>`+providers.map(p=>`<div class="who" style="color:var(--mu);margin:10px 0 4px">${logo(p.name,18)}<span>${esc(cap(p.name))}</span></div><div class="chips" data-n="${esc(p.name)}" style="margin:0">${[0,1,2,3,4,5].map(i=>`<button class="chip ${localStorage['vi:'+p.name]!==undefined&&+localStorage['vi:'+p.name]===i?'on':''}" data-i="${i}">Voice ${i+1}</button>`).join('')}</div>`).join(''));
-  v.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>{localStorage.vspeed=b.dataset.s;v.querySelectorAll('[data-s]').forEach(x=>x.classList.toggle('on',x===b));Voice.stopSpeak();Voice.speak('This is the speed.',{p:1,r:1,idx:0})});
-  v.querySelectorAll('[data-i]').forEach(b=>b.onclick=()=>{const n=b.parentNode.dataset.n;localStorage['vi:'+n]=b.dataset.i;b.parentNode.querySelectorAll('.chip').forEach(x=>x.classList.toggle('on',x===b));Voice.stopSpeak();Voice.speak('Hi, I am '+cap(n)+'.',{p:1,r:1,idx:+b.dataset.i})})}
-function collectBackup(){const o={};for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(['tk','em','np','prefill','autosend','use','lastbk'].includes(k))continue;o[k]=localStorage.getItem(k)}return JSON.stringify({relayBackup:1,at:Date.now(),data:o})}
-function applyBackup(txt){let o;try{o=JSON.parse(txt)}catch{return false}if(!o||!o.relayBackup||!o.data)return false;Object.keys(o.data).forEach(k=>{if(!['tk','em'].includes(k))localStorage.setItem(k,o.data[k])});return true}
-async function cloudSave(){const r=await api('/api/backup','PUT',{data:collectBackup()});localStorage.lastbk=String(Date.now());return r}
-async function autoBackup(){try{if(localStorage.autobk==='1'&&Date.now()-(+localStorage.lastbk||0)>20*3600*1000)await cloudSave()}catch{}}
+async function voicesSheet(){
+  const cfg=await Human.config(),human=localStorage.vengine==='human'&&cfg.enabled,sp=+localStorage.vspeed||1;
+  const per=providers.map((p,i)=>human
+    ?`<div class="who" style="color:var(--mu);margin:12px 0 4px">${logo(p.name,18)}<span>${esc(cap(p.name))}</span></div><div style="display:flex;gap:8px"><select class="in" data-hv="${esc(p.name)}" style="flex:1">${cfg.voices.map(x=>`<option value="${esc(x.id)}" ${Human.voiceFor({n:p.name,idx:i})===x.id?'selected':''}>${esc(x.label)}</option>`).join('')}</select><button class="chip" data-test="${esc(p.name)}" data-i="${i}">Test</button></div>`
+    :`<div class="who" style="color:var(--mu);margin:10px 0 4px">${logo(p.name,18)}<span>${esc(cap(p.name))}</span></div><div class="chips" data-n="${esc(p.name)}" style="margin:0">${[0,1,2,3,4,5].map(k=>`<button class="chip ${localStorage['vi:'+p.name]!==undefined&&+localStorage['vi:'+p.name]===k?'on':''}" data-i="${k}">Voice ${k+1}</button>`).join('')}</div>`).join('');
+  const v=sheet(`<h2>Voices</h2><div class="mu" style="font-size:13px;margin-bottom:6px">Voice type</div><div class="chips"><button class="chip ${human?'':'on'}" data-e="phone">Phone voice</button><button class="chip ${human?'on':''}" data-e="human">Human voice</button></div><div class="mu" style="font-size:12px;margin:-4px 0 10px">${cfg.enabled?(human?'Natural voices made by your relay ('+esc(cfg.provider)+'). Needs internet.':'Uses the built-in voices of your phone.'):esc(cfg.hint||'Human voices are not available.')}</div><div class="mu" style="font-size:13px;margin-bottom:6px">Speed</div><div class="chips" id="vs">${[['Slow',.8],['Normal',1],['Fast',1.2],['Faster',1.4]].map(x=>`<button class="chip ${sp===x[1]?'on':''}" data-s="${x[1]}">${x[0]}</button>`).join('')}</div>`+per);
+  v.querySelectorAll('[data-e]').forEach(b=>b.onclick=()=>{if(b.dataset.e==='human'&&!cfg.enabled){toast(cfg.hint||'Human voices are not available');return}
+    localStorage.vengine=b.dataset.e;Human.dead=false;Human.fails=0;v.remove();voicesSheet()});
+  v.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>{localStorage.vspeed=b.dataset.s;v.querySelectorAll('[data-s]').forEach(x=>x.classList.toggle('on',x===b));Voice.stopSpeak();Voice.speak('This is the speed.',{p:1,r:1,idx:0,n:providers[0]&&providers[0].name})});
+  v.querySelectorAll('select[data-hv]').forEach(e=>e.onchange=()=>{localStorage['hv:'+e.dataset.hv]=e.value});
+  v.querySelectorAll('[data-test]').forEach(b=>b.onclick=()=>{const n=b.dataset.test;Voice.stopSpeak();Voice.speak('Hi, I am '+cap(n)+'. This is how I sound.',{p:1,r:1,idx:+b.dataset.i,n})});
+  v.querySelectorAll('.chips[data-n] [data-i]').forEach(b=>b.onclick=()=>{const n=b.parentNode.dataset.n;localStorage['vi:'+n]=b.dataset.i;b.parentNode.querySelectorAll('.chip').forEach(x=>x.classList.toggle('on',x===b));Voice.stopSpeak();Voice.speak('Hi, I am '+cap(n)+'.',{p:1,r:1,idx:+b.dataset.i,n})})}
 function backupSheet(){
   const v=sheet(`<h2>Backup &amp; restore</h2><p class="mu" style="font-size:13px">Saves your chats, rooms, notes, saved prompts and settings as text you can keep. Your sign-in is not included.</p><button class="btn" id="bkb">Back up as text</button><div class="sec" style="margin-top:16px">On my relay</div><div id="cbi" class="mu" style="font-size:13px;margin-bottom:8px">Checking…</div><div style="display:flex;gap:8px"><button class="btn alt" id="cbs">Save now</button><button class="btn alt" id="cbr">Restore</button></div><label class="row plain" style="padding:10px 0"><input type="checkbox" id="cba" ${localStorage.autobk==='1'?'checked':''}> <span>Back up automatically every day</span></label><div class="sec" style="margin-top:16px">Restore</div><textarea id="rtx" class="in" style="min-height:90px" placeholder="Paste a backup here"></textarea><button class="btn alt" id="rsb" style="margin-top:10px">Restore from backup</button>`);
   v.querySelector('#bkb').onclick=()=>exportText('Relay backup',collectBackup());
@@ -687,7 +691,8 @@ function getRoom(id){if(RC[id])return RC[id];try{const r=JSON.parse(localStorage
 function saveRoom(r){try{localStorage['room:'+r.id]=JSON.stringify(Object.assign({},r,{msgs:r.msgs.slice(-300)}))}catch{}}
 const rtOf=id=>RTS[id]||(RTS[id]={id,run:0,active:0,lock:Promise.resolve(),typing:null,speaking:null,vm:null});
 const colorOf=(room,n)=>COLORS[Math.max(0,room.members.indexOf(n))%COLORS.length];
-const voiceOf=(room,n)=>{const i=Math.max(0,room.members.indexOf(n)),v=Object.assign({idx:i},VPRESETS[i%VPRESETS.length]);if(localStorage['vi:'+n]!==undefined)v.idx=+localStorage['vi:'+n];return v};
+const voiceOf=(room,n)=>{const i=Math.max(0,room.members.indexOf(n)),v=Object.assign({idx:i,n:n},VPRESETS[i%VPRESETS.length]);if(localStorage['vi:'+n]!==undefined)v.idx=+localStorage['vi:'+n];return v};
+const soloIdx=n=>localStorage['vi:'+n]!==undefined?+localStorage['vi:'+n]:Math.max(0,providers.findIndex(p=>p.name===n));
 const inRoom=id=>location.hash==='#/room/'+id;
 const isMuted=(room,n)=>(room.muted||[]).includes(n);
 const activeNames=room=>room.members.filter(n=>!isMuted(room,n));
@@ -710,13 +715,50 @@ const Voice={n:0,pend:{},L:null,rec:null,
     r.onend=()=>{if(Voice.L){const L=Voice.L;Voice.L=null;L.rej('end')}};
     try{r.start()}catch(e){Voice.L=null;rej('err')}})},
   stopListen(){const L=Voice.L;Voice.L=null;try{if(A)A.stopListen();else if(Voice.rec)Voice.rec.abort()}catch{}if(L)L.rej('stop')},
-  speak(text,v){return new Promise(res=>{const id=String(++Voice.n);Voice.pend[id]=res;
+  speak(text,v){return localStorage.vengine==='human'&&!Human.dead?Human.speak(text,v):Voice.speakPhone(text,v)},
+  speakPhone(text,v){return new Promise(res=>{const id=String(++Voice.n);Voice.pend[id]=res;
     text=String(text).replace(/https?:\/\/\S+/g,'link').slice(0,3500);
     if(A){A.speak(id,text,v.p,v.r*(+localStorage.vspeed||1),v.idx);return}
     if(!window.speechSynthesis){delete Voice.pend[id];return res()}
     const u=new SpeechSynthesisUtterance(text);u.pitch=v.p;u.rate=v.r*(+localStorage.vspeed||1);const vs=speechSynthesis.getVoices().filter(x=>/^en/i.test(x.lang));if(vs.length)u.voice=vs[v.idx%vs.length];
     u.onend=u.onerror=()=>{delete Voice.pend[id];res()};speechSynthesis.speak(u)})},
-  stopSpeak(){try{if(A)A.stopSpeak();else if(window.speechSynthesis)speechSynthesis.cancel()}catch{}const p=Voice.pend;Voice.pend={};Object.values(p).forEach(f=>f())}
+  stopSpeak(){Human.stop();try{if(A)A.stopSpeak();else if(window.speechSynthesis)speechSynthesis.cancel()}catch{}const p=Voice.pend;Voice.pend={};Object.values(p).forEach(f=>f())}
+};
+const Human={cfg:null,cur:null,curRes:null,epoch:0,dead:false,fails:0,
+  async config(){if(Human.cfg)return Human.cfg;try{Human.cfg=await api('/api/tts/config')}catch{Human.cfg={enabled:false,voices:[],hint:'Could not reach your relay'}}return Human.cfg},
+  chunks(t){t=String(t).replace(/https?:\/\/\S+/g,'link').replace(/\s+/g,' ').trim().slice(0,3000);
+    const sent=t.match(/[^.!?\n]+[.!?]*\s*/g)||[t],out=[];let cur='';
+    for(const x of sent){const lim=out.length?300:150;if(cur&&(cur+x).length>lim){out.push(cur.trim());cur=x}else cur+=x}
+    if(cur.trim())out.push(cur.trim());return out.slice(0,12)},
+  async fetchAudio(text,voice){const r=await fetch('/api/tts',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+tok},body:JSON.stringify({text,voice})});
+    if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(j.error||'Voice error '+r.status)}
+    return URL.createObjectURL(await r.blob())},
+  play(url){return new Promise((res,rej)=>{const a=new Audio(url);Human.cur=a;
+    const done=()=>{Human.cur=null;Human.curRes=null;URL.revokeObjectURL(url)};
+    Human.curRes=()=>{done();res()};
+    a.playbackRate=+localStorage.vspeed||1;
+    a.onended=()=>{done();res()};a.onerror=()=>{done();rej(new Error('audio'))};
+    const p=a.play();if(p&&p.catch)p.catch(e=>{done();rej(e)})})},
+  voiceFor(v){const c=Human.cfg;if(!c||!c.voices.length)return '';const sv=v&&v.n?localStorage['hv:'+v.n]:'';
+    return sv&&c.voices.some(x=>x.id===sv)?sv:c.voices[((v&&v.idx)||0)%c.voices.length].id},
+  async speak(text,v){
+    const my=++Human.epoch,cfg=await Human.config();
+    if(!cfg.enabled)return Voice.speakPhone(text,v);
+    const voice=Human.voiceFor(v),parts=Human.chunks(text);if(!parts.length)return;
+    let next=Human.fetchAudio(parts[0],voice);next.catch(()=>{});
+    for(let i=0;i<parts.length;i++){
+      let url;try{url=await next}catch(e){return Human.fallback(parts.slice(i).join(' '),v,my,e)}
+      if(my!==Human.epoch){URL.revokeObjectURL(url);return}
+      if(i+1<parts.length){next=Human.fetchAudio(parts[i+1],voice);next.catch(()=>{})}
+      try{await Human.play(url)}catch(e){return Human.fallback(parts.slice(i).join(' '),v,my,e)}
+      if(my!==Human.epoch)return;
+      Human.fails=0}
+  },
+  async fallback(text,v,my,e){
+    if(my!==Human.epoch)return;
+    if(++Human.fails>=2){Human.dead=true;toast('Human voice is not working here, so the phone voice is used. '+String(e&&e.message||'').slice(0,80))}
+    return Voice.speakPhone(text,v)},
+  stop(){Human.epoch++;const r=Human.curRes;try{Human.cur&&Human.cur.pause()}catch{}Human.cur=null;if(r)r()}
 };
 window.__heard=(t,fin)=>{const L=Voice.L;if(!L)return;if(L.onPartial)L.onPartial(t);if(fin){Voice.L=null;L.res(t)}};
 window.__heardErr=c=>{const L=Voice.L;if(!L)return;Voice.L=null;L.rej(String(c))};

@@ -156,6 +156,21 @@ function auth(req, res, next) {
 
 // ---------- providers ----------
 app.get('/api/providers', auth, (req, res) => res.json(db.providers.filter(p => p.userId === req.uid).map(({ cookies, ...p }) => ({ ...p, hasSession: !!cookies }))));
+// human-sounding voices (see tts.js)
+const tts = require('./tts');
+app.get('/api/tts/config', auth, (req, res) => res.json(tts.config()));
+app.post('/api/tts', auth, async (req, res) => {
+  const text = String((req.body || {}).text || '').replace(/\s+/g, ' ').trim().slice(0, 1200);
+  if (!text) return res.status(400).json({ error: 'No text' });
+  if (!tts.config().enabled) return res.status(503).json({ error: tts.config().hint || 'Human voices are not set up' });
+  if (!tts.allowed(req.uid)) return res.status(429).json({ error: 'Too many voice requests. Wait a moment.' });
+  try {
+    const audio = await tts.synth(text, String((req.body || {}).voice || ''));
+    if (!audio || audio.length < 400) throw new Error('empty audio');
+    res.set({ 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-store' });
+    res.send(audio);
+  } catch (e) { res.status(502).json({ error: 'Voice service failed: ' + String(e.message || e).slice(0, 120) }); }
+});
 // one saved app backup per user (encrypted at rest); only survives restarts if Turso storage is configured
 app.get('/api/backup', auth, (req, res) => {
   const x = (db.backups || {})[req.uid];

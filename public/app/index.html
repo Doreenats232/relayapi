@@ -322,7 +322,7 @@ function runAction(a){try{return String(A.phone(JSON.stringify(a)))}catch(e){ret
 
 async function chatView(pn){
   let msgs=load(pn);cur=pn;const spOn=()=>localStorage['tts:'+pn]==='1';
-  $('#app').innerHTML=`<div class="top"><button class="ib" id="bk" aria-label="Back">${ICON.back}</button><div class="av" style="width:40px;height:40px;border-radius:12px">${esc(pn[0].toUpperCase())}</div><h1 style="font-size:19px;flex:1;min-width:0">${esc(pn)}</h1><button class="ib" id="pin" aria-label="Pin"></button><button class="ib" id="sp" aria-label="Read replies aloud"></button><button class="ib" id="ex" aria-label="Export chat">${ICON.share}</button><button class="ib" id="nw" aria-label="New chat">${ICON.new}</button></div>
+  $('#app').innerHTML=`<div class="top"><button class="ib" id="bk" aria-label="Back">${ICON.back}</button><div class="av" style="width:40px;height:40px;border-radius:12px">${logo(pn,34)}</div><h1 style="font-size:19px;flex:1;min-width:0">${esc(pn)}</h1><button class="ib" id="vc" aria-label="Voice chat">${ICON.spark}</button><button class="ib" id="pin" aria-label="Pin"></button><button class="ib" id="sp" aria-label="Read replies aloud"></button><button class="ib" id="ex" aria-label="Export chat">${ICON.share}</button><button class="ib" id="nw" aria-label="New chat">${ICON.new}</button></div>
   <div class="chat" id="chat"></div>
   <div class="rbar" id="fl"></div><div class="rbar" id="qk"></div><div class="composer"><button class="ib" id="at" aria-label="Attach a file">${ICON.clip}</button><input type="file" id="fi" hidden multiple accept="image/*,.pdf,.txt,.md,.csv,.json,.doc,.docx">${A&&typeof A.hasCamera==='function'&&A.hasCamera()?`<button class="ib" id="cam" aria-label="Take a photo">${ICON.cam}</button><input type="file" id="fc" accept="image/*" capture="environment" hidden>`:''}<button class="ib" id="mc" aria-label="Speak">${ICON.mic}</button><textarea id="ta" rows="1" placeholder="Message ${esc(pn)}"></textarea><button class="send" id="sd" aria-label="Send">${ICON.send}</button></div>`;
   const chat=$('#chat'),ta=$('#ta');
@@ -363,6 +363,7 @@ async function chatView(pn){
     q.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>{ta.value=sp[+b.dataset.s];ta.focus();ta.oninput&&ta.oninput()});
     $('#qs').onclick=()=>{const t=ta.value.trim();if(!t){toast('Type a prompt first, then tap Save');return}const a=savedPrompts();if(a.length>=40){toast('That is the limit');return}a.push(t.slice(0,300));localStorage.sp=JSON.stringify(a);toast('Prompt saved');drawQuick()}}
   let att=[];
+  let sv=null; // one-to-one voice chat state
   const drawFiles=()=>{$('#fl').innerHTML=att.map((f,i)=>`<span class="fch">${esc(f.name.slice(0,24))}<button data-x="${i}" aria-label="Remove">×</button></span>`).join('');
     $('#fl').querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>{att.splice(+b.dataset.x,1);drawFiles()})};
   $('#at').onclick=()=>$('#fi').click();
@@ -379,7 +380,7 @@ async function chatView(pn){
     msgs.push({role:'user',content:text+(sendFiles.length?'\n📎 '+sendFiles.map(f=>f.name).join(', '):'')});const me={role:'assistant',content:'',pending:true,t0:Date.now()};msgs.push(me);draw();
     try{
       const hist=msgs.filter(m=>!m.pending&&!m.err).map(m=>({role:m.role,content:m.content})).slice(-40);
-      const sys=sysPrompt(pn),body={model:pn,messages:(sys?[{role:'system',content:sys}]:[]).concat(hist),stream:true};if(sendFiles.length)body.files=sendFiles;
+      const sys=sysPrompt(pn)+(sv&&sv.on?' The User is speaking to you out loud and your reply will be read aloud, so answer briefly and naturally in plain sentences, with no lists, markdown or code.':''),body={model:pn,messages:(sys?[{role:'system',content:sys}]:[]).concat(hist),stream:true};if(sendFiles.length)body.files=sendFiles;
       const r=await fetch('/api/playground',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+tok},body:JSON.stringify(body)});
       if(r.status===401){logout(true);return}
       if(!(r.headers.get('content-type')||'').includes('event-stream')){const j=await r.json().catch(()=>({}));throw new Error((j.error&&(j.error.message||j.error))||'Error '+r.status)}
@@ -393,11 +394,65 @@ async function chatView(pn){
       delete me.pending;if(!me.content.trim()){me.content='No reply came back. Try again, or check the site is still signed in.';me.err=true;useStat(pn,false,'No reply')}else{notifyDone(cap(pn),me.content);useStat(pn,true)}
     }catch(e){delete me.pending;me.content=e.message;me.err=true;useStat(pn,false,e.message)}
     busy=false;store(pn,msgs);
-    if(spOn()&&!me.err&&me.content)Voice.speak(extract(me.content).text,{p:1,r:1,idx:+localStorage['vi:'+pn]||0});
+    if(sv&&sv.on&&!me.err&&me.content)sv.say=extract(me.content).text;
+    else if(spOn()&&!me.err&&me.content)Voice.speak(extract(me.content).text,{p:1,r:1,idx:+localStorage['vi:'+pn]||0});
     if(cur===pn){const sd=$('#sd');if(sd)sd.disabled=false;draw();
       if(phoneOn()&&!askFirst()&&!me.err){const as=actionsOf(me.content);me.done={};as.forEach((a,k)=>{if(!SCREEN.has(a.action))me.done[k]=runAction(a)});store(pn,msgs);draw()}}
   }
   $('#sd').onclick=send;
+  function svDraw(){const d=$('#vo');if(!d||!sv)return;
+    const st=sv.speaking?'speaking':busy?'thinking':sv.muted?'muted':sv.idle?'idle':sv.listening?'listening':'idle';
+    d.className='vo st-'+st;
+    const names={speaking:cap(pn)+' is speaking. Tap to interrupt.',thinking:cap(pn)+' is thinking…',muted:'Muted',idle:'Tap the orb and speak',listening:'Listening…'};
+    $('#vst').textContent=names[st];$('#vcap').textContent=sv.caption||'';
+    d.querySelectorAll('.vp').forEach(p=>p.classList.toggle('on',st==='speaking'||st==='thinking'));
+    $('#vmute').innerHTML=sv.muted?ICON.micoff:ICON.mic;$('#vmute').classList.toggle('off',sv.muted)}
+  function svClose(){
+    try{A&&A.keepOn&&A.keepOn(false);A&&A.voiceBg&&A.voiceBg(false)}catch{}
+    if(!sv)return;sv.on=false;Voice.stopListen();Voice.stopSpeak();
+    if(sv.tap){const t=sv.tap;sv.tap=null;t()}
+    const d=$('#vo');if(d)d.remove();sv=null}
+  function svStart(){
+    if(!Voice.ok()){toast('Voice is not available here. Update the Relay app or use Chrome.');return}
+    if(busy){toast('Wait for the reply to finish first');return}
+    if(sv&&sv.on)return;
+    try{A&&A.keepOn&&A.keepOn(true);if(A&&A.voiceBg&&localStorage.vbg!=='0')A.voiceBg(true)}catch{}
+    sv={on:true,muted:false,listening:false,idle:false,speaking:false,caption:'',miss:0,err:0,tap:null,say:''};
+    const d=document.createElement('div');d.id='vo';d.className='vo';
+    d.innerHTML=`<div class="vtop"><b>${esc(cap(pn))}</b></div><div class="vst" id="vst"></div>
+    <button class="vorb" id="vorb" aria-label="Tap to interrupt or talk"><span class="vglow"></span><span class="vcore">${ICON.spark}</span></button>
+    <div class="vcap" id="vcap"></div>
+    <div class="vpeople"><div class="vp"><div class="av">${logo(pn,34)}</div><small>${esc(cap(pn))}</small></div></div>
+    <div class="vbtns"><button class="ib big" id="vmute" aria-label="Mute">${ICON.mic}</button><button class="ib big end" id="vend" aria-label="End">${ICON.x}</button></div>`;
+    document.body.appendChild(d);
+    window.addEventListener('hashchange',()=>{if(sv)svClose()},{once:true});
+    $('#vorb').onclick=()=>{if(sv.speaking)Voice.stopSpeak();else if(sv.tap){const t=sv.tap;sv.tap=null;t()}};
+    $('#vmute').onclick=()=>{sv.muted=!sv.muted;if(sv.muted)Voice.stopListen();svDraw()};
+    $('#vend').onclick=svClose;
+    svDraw();svLoop()}
+  async function svLoop(){
+    const me=sv;
+    while(me.on){
+      if(me.muted||busy){me.listening=false;svDraw();await sleep(250);continue}
+      me.listening=true;me.caption='';svDraw();
+      let text='';
+      try{text=await Voice.listen(p=>{me.caption='You: '+p;svDraw()})}
+      catch(e){me.listening=false;if(!me.on)break;const c=String(e);
+        if(c==='stop'||c==='aborted')continue;
+        if(c==='perm'||c==='9'){toast('Allow the microphone to talk');svClose();return}
+        if(['6','7','no-speech','end'].includes(c)){if(++me.miss>=3){me.miss=0;me.idle=true;svDraw();await new Promise(r=>me.tap=r);me.idle=false}continue}
+        await sleep(800);if(++me.err>=4){toast('Voice input stopped. Check your internet and the Google app.');svClose();return}continue}
+      me.listening=false;me.miss=0;me.err=0;
+      if(!text.trim())continue;
+      me.caption='You: '+text;me.say='';svDraw();
+      ta.value=text;
+      const p=send();svDraw();await p;
+      if(!me.on)break;
+      const last=msgs[msgs.length-1];
+      if(last&&last.err){me.caption=String(last.content).slice(0,140);svDraw();await sleep(2500)}
+      else if(me.say){me.speaking=true;me.caption=cap(pn)+': '+me.say;svDraw();await Voice.speak(me.say,{p:1,r:1,idx:+localStorage['vi:'+pn]||0});me.speaking=false}
+      me.say='';svDraw()}}
+  $('#vc').onclick=svStart;
   const pinI=()=>{$('#pin').textContent=jget('pins',[]).includes(pn)?'★':'☆'};pinI();
   $('#pin').onclick=()=>{let a=jget('pins',[]);if(a.includes(pn)){a=a.filter(x=>x!==pn);toast('Unpinned')}else{a.push(pn);toast('Pinned to the top')}localStorage.pins=JSON.stringify(a);pinI()};
   const spi=()=>{$('#sp').innerHTML=spOn()?ICON.speaker:ICON.speakeroff};spi();

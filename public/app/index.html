@@ -658,7 +658,10 @@ async function streamPlayground(body,onDelta,signal){
   return all;
 }
 function roomSys(room,name){let t=roomSys0(room,name);const mt=memoryText(),role=(room.roles||{})[name];
-  if(mt)t+=' '+mt.replace(/\n/g,' ');if(role)t+=' Your role in this room: '+role+'. Stay in that role.';return t}
+  if(mt)t+=' '+mt.replace(/\n/g,' ');if(role)t+=' Your role in this room: '+role+'. Stay in that role.';
+  if(phoneOn()){t+=' '+PHONE_RULES+' In this group chat you CAN do this, just like in a one-to-one chat, so never say that you cannot open apps or control the phone. Only send an ACTION line when the User asks you to do something on the phone or tags you for it, not when the other AIs are just talking, and never repeat an action another AI already sent. You may still write your short reply as usual next to the ACTION line.';
+    if(ctlLive())t+=' '+SCREEN_RULES}
+  return t}
 function roomSys0(room,name){
   const others=activeNames(room).filter(m=>m!==name).map(cap).join(', ');
   const rules=[(localStorage['rr:all']||'').trim(),(localStorage['rr:'+name]||'').trim(),room.topic].filter(Boolean).join('\n');
@@ -669,7 +672,7 @@ function historyFor(room,name){
   for(const m of room.msgs){
     if(m.who==='system')continue;
     if(m.who===name)h.push({role:'assistant',content:m.pass?'PASS':(m.content+(m.ask?'\nASK_USER: '+m.ask.reason:'')).trim()});
-    else if(!m.pass)h.push({role:'user',content:'['+(m.who==='user'?'User':cap(m.who))+']: '+m.content});
+    else if(!m.pass){const ex=m.who==='user'?{text:m.content,acts:[]}:extract(m.content);h.push({role:'user',content:'['+(m.who==='user'?'User':cap(m.who))+']: '+ex.text+(ex.acts.length?' [sent a phone action: '+ex.acts.map(label).join(', ')+']':'')})}
   }
   return h.slice(-40);
 }
@@ -708,8 +711,9 @@ async function speakAs(R,n,text){
 function mkAsk(room,n,reason){
   const low=reason.toLowerCase(),to=room.members.filter(m=>m!==n&&new RegExp('(^|[^a-z0-9])@?'+m.replace(/[^a-z0-9]/gi,'.')+'([^a-z0-9]|$)').test(low));
   return {reason:reason.replace(/@/g,''),to,status:'pending'}}
-function pushMsg(R,room,n,res){
-  const m={who:n,content:res.text||''};if(res.ask)m.ask=mkAsk(room,n,res.ask);notifyDone(room.name+' · '+cap(n),(res.text||'')+(res.ask?' (wants to talk with the others)':''));
+function pushMsg(R,room,n,res,auto){
+  const m={who:n,content:res.text||''};if(res.ask)m.ask=mkAsk(room,n,res.ask);notifyDone(room.name+' · '+cap(n),extract(res.text||'').text+(res.ask?' (wants to talk with the others)':''));
+  if(auto&&phoneOn()&&!askFirst()){m.done={};actionsOf(m.content).forEach((a,k)=>{if(!SCREEN.has(a.action))m.done[k]=runAction(a)})}
   room.msgs.push(m);saveRoom(room);refresh(R);return m}
 const askLine=(room,m)=>m.ask?' '+cap(m.who)+' would like to talk with '+(m.ask.to.length?m.ask.to.map(cap).join(' and '):'the others')+' on their own. Say yes or no.':''
 /* one round of replies to what the user just said */
@@ -723,8 +727,8 @@ async function runTurns(R,my,order,opts){
       if(R.run!==my)break;
       if(res.skip||res.pass)continue;
       if(res.err){room.msgs.push({who:'system',content:cap(n)+': '+res.err});saveRoom(room);refresh(R);continue}
-      const m=pushMsg(R,room,n,res);
-      if(opts.speak)chain=chain.then(()=>R.run===my?speakAs(R,n,(res.text+askLine(room,m)).trim()):null);
+      const m=pushMsg(R,room,n,res,true),say=(extract(res.text).text+askLine(room,m)).trim();
+      if(opts.speak&&say)chain=chain.then(()=>R.run===my?speakAs(R,n,say):null);
     }
     await chain;
   }finally{R.active--;R.typing=null;R.speaking=null;refresh(R)}
@@ -748,7 +752,7 @@ async function chatLoop(R,my,first,opts,max){
       idle=0;last=n;pushMsg(R,room,n,res);
       const tagged=[...res.text.toLowerCase().matchAll(/@([a-z0-9-]+)/g)].map(x=>x[1]).filter(x=>act.includes(x)&&x!==n);
       if(tagged.length)next=tagged.concat(next);
-      if(opts.speak)chain=chain.then(()=>R.run===my?speakAs(R,n,res.text):null);
+      const say=extract(res.text).text;if(opts.speak&&say)chain=chain.then(()=>R.run===my?speakAs(R,n,say):null);
     }
     await chain;
   }finally{R.active--;R.typing=null;R.speaking=null;refresh(R)}
@@ -858,13 +862,15 @@ function drawRoom(R){
     if(m.who==='system')return `<div class="act done"><span>${esc(m.content)}</span>${authLike(m.content)?'<button class="btn sm" data-go="1">Sign in</button>':''}</div>`;
     const c=colorOf(room,m.who);
     let o=`<div class="who" style="color:${c}">${logo(m.who,20,c)}<span>${esc(cap(m.who))}</span></div>`;
-    if(m.content)o+=`<div class="msg assistant" style="border-color:${c}55">${md(m.content)}</div>`;
+    const ex=extract(m.content||'');
+    if(ex.text.trim())o+=`<div class="msg assistant" style="border-color:${c}55">${md(ex.text)}</div>`;
+    if(phoneOn()&&ex.acts.length)ex.acts.forEach((a,k)=>{const d=(m.done||{})[k];o+=`<div class="act ${d?'done':''}"><span>${esc(d?label(a)+' — '+String(d).slice(0,80):label(a))}</span>${d?'':`<button class="btn sm" data-ri="${base+j}" data-rk="${k}">Run</button>`}</div>`});
     if(m.ask){const st=m.ask.status,to=m.ask.to.length?m.ask.to.map(cap).join(' and '):'the others';
       o+=`<div class="act ${st==='pending'?'':'done'}"><span>${esc(cap(m.who))} would like to talk with ${esc(to)} on their own: ${esc(m.ask.reason)}</span>${st==='pending'?`<button class="btn sm" data-ask="${base+j}" data-y="1">Allow</button><button class="btn sm alt" data-ask="${base+j}" data-y="0">Not now</button>`:`<small>${st==='allowed'?'Allowed':st==='denied'?'Declined':'Skipped'}</small>`}</div>`}
     return o}).join('');
   if(R.typing)h+=`<div class="who" style="color:${colorOf(room,R.typing)}">${logo(R.typing,20,colorOf(room,R.typing))}<span>${esc(cap(R.typing))}</span></div><div class="msg assistant"><span class="typing"><i></i><i></i><i></i></span></div>`;
   if(!h)h=`<div class="empty">${orb()}<b style="color:var(--tx);font-size:18px">${esc(room.name)}</b><p>Talk to everyone, or tap a name to ask one AI. They take turns, one at a time, and hear each other.</p></div>`;
-  chat.innerHTML=h;chat.querySelectorAll('[data-ask]').forEach(b=>b.onclick=()=>answerAsk(R,room.msgs[+b.dataset.ask],b.dataset.y==='1',{}));chat.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>location.href='/#/providers');if(near)chat.scrollTop=chat.scrollHeight;
+  chat.innerHTML=h;chat.querySelectorAll('[data-ri]').forEach(b=>b.onclick=()=>{const m=room.msgs[+b.dataset.ri],a=actionsOf(m.content)[+b.dataset.rk];if(!a)return;m.done=m.done||{};const res=runAction(a);m.done[b.dataset.rk]=res;saveRoom(room);drawRoom(R);if(a.action==='read_screen'&&!R.active&&!/^(Screen control|Accessibility|Could not)/.test(res))converse(R,'@'+m.who+' Here is what the screen shows:\n'+res,{})});chat.querySelectorAll('[data-ask]').forEach(b=>b.onclick=()=>answerAsk(R,room.msgs[+b.dataset.ask],b.dataset.y==='1',{}));chat.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>location.href='/#/providers');if(near)chat.scrollTop=chat.scrollHeight;
   const sd=$('#sd');if(sd)sd.innerHTML=R.active>0&&!$('#ta').value.trim()?ICON.stop:ICON.send;
 }
 

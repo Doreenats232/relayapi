@@ -128,9 +128,15 @@ html[data-theme=amoled] body{background:#000}
 .vbtns{display:flex;gap:18px;align-items:center;margin-top:auto}
 .ib.big{width:58px;height:58px}.ib.end{background:#ff4d6a;border-color:#ff4d6a}.ib.end svg{stroke:#fff}.ib.big.off{background:var(--bad);border-color:var(--bad)}
 @media (prefers-reduced-motion:reduce){.vo *{animation:none!important}}
+#hi{position:fixed;inset:0;z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(900px 700px at 50% 40%,var(--glow3,#14783acc),transparent 70%),#05080a;color:#fff;animation:hiOut .5s ease 2.3s forwards;pointer-events:none}
+#hi b{font-size:34vw;line-height:1;font-weight:800;letter-spacing:-.04em;background:linear-gradient(135deg,var(--a1,#22c55e),var(--a2,#86efac));-webkit-background-clip:text;background-clip:text;color:transparent;animation:hiIn .6s cubic-bezier(.2,.9,.3,1.2) both}
+#hi small{margin-top:10px;font-size:14px;letter-spacing:.2em;text-transform:uppercase;color:#9aa0b8;opacity:.9}
+@keyframes hiIn{from{transform:scale(.4);opacity:0}to{transform:scale(1);opacity:1}}
+@keyframes hiOut{to{opacity:0;visibility:hidden}}
 </style>
 </head>
 <body>
+<div id="hi"><b>Hi</b><small>Relay</small></div>
 <div id="app"></div>
 <script>
 'use strict';
@@ -1037,6 +1043,7 @@ window.addEventListener('unhandledrejection',e=>{try{toast(String(e.reason&&e.re
 setInterval(()=>{document.querySelectorAll('.wait').forEach(e=>{const t=+e.dataset.t0;if(!t)return;const n=Math.round((Date.now()-t)/1000);e.textContent=n>=8?'still working… '+n+'s':''})},1000);
 setTimeout(()=>{try{if(tok){rescheduleTasks();autoBackup()}}catch{}},1500);
 window.__go0=window.__go;window.__go=()=>{try{const tk=A&&A.takeTask&&A.takeTask();if(tk&&tok){const i=tk.indexOf('\n');localStorage.prefill=tk.slice(i+1);localStorage.autosend='1';const h='#/chat/'+encodeURIComponent(tk.slice(0,i));if(location.hash===h)route();else location.hash=h;return}}catch{}window.__go0&&window.__go0()};
+setTimeout(()=>{const e=document.getElementById('hi');if(e)e.remove()},3000);
 </script>
 </body>
 </html>

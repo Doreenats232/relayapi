@@ -47,7 +47,7 @@ const buildState = (raw, storageRaw, url) => {
   let origin = ''; try { origin = new URL(url).origin; } catch {}
   return enc(JSON.stringify({ cookies, origins: ls.length && origin ? [{ origin, localStorage: ls }] : [] }));
 };
-const app = express();
+const app = express(); app.set('trust proxy', 1); // Render sits behind a proxy: use the real client address
 app.use('/api/playground', express.json({ limit: '28mb' }));
 app.use('/api/backup', express.json({ limit: '6mb' }));
 app.use(express.json({ limit: '1mb' }));
@@ -57,7 +57,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 // ---------- auth ----------
 app.post('/api/signup', (req, res) => {
   const { email, password } = req.body || {}, un = String((req.body || {}).username || '').trim().toLowerCase();
-  if (!email || !password || password.length < 6) return res.status(400).json({ error: 'Valid email and 6+ char password required' });
+  if (typeof email !== 'string' || typeof password !== 'string' || !email || password.length < 6) return res.status(400).json({ error: 'Valid email and 6+ char password required' });
   if (un && !/^[a-z0-9_.-]{3,20}$/.test(un)) return res.status(400).json({ error: 'Username must be 3-20 characters: letters, numbers, . _ -' });
   if (db.users.find(u => u.email === email.toLowerCase())) return res.status(409).json({ error: 'Email already registered' });
   if (un && db.users.find(u => u.username === un)) return res.status(409).json({ error: 'That username is taken. Try another' });
@@ -80,11 +80,17 @@ app.post('/api/google', async (req, res) => {
     res.json({ token: session(u.id), email: u.email, name: u.name, picture: u.picture });
   } catch (e) { res.status(502).json({ error: 'Could not reach Google' }); }
 });
+const loginFails = {}; setInterval(() => { const n = Date.now(); for (const k of Object.keys(loginFails)) if (n - loginFails[k].t > 15 * 60e3) delete loginFails[k]; }, 600000).unref();
 app.post('/api/login', (req, res) => {
   const { email, password } = req.body || {};
+  if (typeof password !== 'string') return res.status(400).json({ error: 'Enter your password' });
+  const ip = req.ip || '', now = Date.now(), f = loginFails[ip] || (loginFails[ip] = { n: 0, t: now });
+  if (now - f.t > 15 * 60e3) { f.n = 0; f.t = now; }
+  if (f.n >= 10) return res.status(429).json({ error: 'Too many wrong tries. Wait 15 minutes and try again.' });
   const who = String(email || '').trim().toLowerCase(), u = db.users.find(x => x.email === who || (x.username && x.username === who));
   if (u && !u.salt) return res.status(401).json({ error: 'This account uses Google sign-in' });
-  if (!u || hashPw(password || '', u.salt) !== u.hash) return res.status(401).json({ error: 'Wrong email, username or password' });
+  if (!u || !crypto.timingSafeEqual(Buffer.from(hashPw(password, u.salt)), Buffer.from(u.hash))) { f.n++; return res.status(401).json({ error: 'Wrong email, username or password' }); }
+  delete loginFails[ip];
   res.json({ token: session(u.id), email: u.email });
 });
 
@@ -187,7 +193,7 @@ app.put('/api/backup', auth, (req, res) => {
 app.post('/api/providers', auth, (req, res) => {
   const { name, url, cookies } = req.body || {}, cl = v => /^(blank|auto|none|optional|n\/a)\b|press enter|auto-detect/i.test(String(v || '').trim()) ? '' : String(v || '').trim(), inputSel = cl(req.body.inputSel), sendSel = cl(req.body.sendSel), responseSel = cl(req.body.responseSel);
   let ck = ''; try { ck = buildState(cookies, req.body.storage, url); } catch (e) { return res.status(400).json({ error: e.message }); }
-  if (!name || !/^https?:\/\//.test(url || '')) return res.status(400).json({ error: 'Name and full URL (https://...) required' });
+  if (typeof name !== 'string' || !name || !/^https?:\/\//.test(url || '')) return res.status(400).json({ error: 'Name and full URL (https://...) required' });
   const slug = name.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-|-$/g, '');
   if (db.providers.find(p => p.userId === req.uid && p.name === slug)) return res.status(409).json({ error: 'Provider name already used' });
   const p = { id: id(), userId: req.uid, name: slug, url, inputSel: inputSel || '', sendSel: sendSel || '', responseSel: responseSel || '', cookies: ck, created: Date.now() };
@@ -266,6 +272,9 @@ function parseTools(text, tools) {
 const lastUserOf = ms => String(([...(ms || [])].reverse().find(m => m && m.role === 'user') || {}).content || '');
 const convOf = v => String(v || '').replace(/[^\w-]/g, '').slice(0, 64) || undefined;
 async function run(userId, keyId, body, res, o = {}) {
+  body = body && typeof body === 'object' ? body : {};
+  if (Array.isArray(body.messages)) body.messages = body.messages.filter(m => m && typeof m === 'object' && typeof m.role === 'string'); // junk entries (null, strings) used to crash the whole server
+  if (Array.isArray(body.tools)) body.tools = body.tools.filter(t => t && typeof t === 'object');
   const t0 = Date.now(), prompt = toPrompt(body.messages, body.tools), info = { files: Array.isArray(body.files) ? body.files.slice(0, 3).filter(f => f && f.b64 && f.name) : [] };
   const p = o.provider || db.providers.find(p => p.userId === userId && p.name === body.model);
   const log = (ok, err) => { db.logs.push({ ts: Date.now(), userId, keyId, provider: p ? p.name : body.model, ms: Date.now() - t0, ok, err: err || '', promptLen: prompt.length, how: info.how || '' }); if (db.logs.length > 1500) db.logs.splice(0, 500); save(); };
@@ -276,6 +285,8 @@ async function run(userId, keyId, body, res, o = {}) {
     const streaming = body.stream === true && !(body.tools && body.tools.length);
     const cid = 'chatcmpl-' + id(), mk = (delta, fin) => 'data: ' + JSON.stringify({ id: cid, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1000), model: p.name, choices: [{ index: 0, delta, finish_reason: fin || null }] }) + '\n\n';
     let sent = '';
+    const ka = setInterval(() => { if (streaming && !res.writableEnded) try { res.write(': ping\n\n'); } catch {} }, 15000); // keep the connection alive while the site is thinking
+    res.on('close', () => { clearInterval(ka); if (!res.writableEnded) info.aborted = true; }); // app pressed Stop / left the screen: stop typing-wait on the site so the queue frees up
     if (streaming) { // send the reply to the client while the site is still typing it
       res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' }); res.flushHeaders && res.flushHeaders();
       res.write(mk({ role: 'assistant', content: '' }));
@@ -347,3 +358,6 @@ loadDb().then(() => {
   server.listen(process.env.PORT || 10000, () => console.log('RelayAPI up'));
 }).catch(e => { console.error('FATAL: could not load storage —', e.message); process.exit(1); });
 process.on('SIGTERM', async () => { await flush(); process.exit(0); });
+// one bad request or browser hiccup must never take the whole relay (and every warm chat) down
+process.on('unhandledRejection', e => console.log('Unhandled rejection:', e && e.stack || e));
+process.on('uncaughtException', e => console.log('Uncaught exception:', e && e.stack || e));

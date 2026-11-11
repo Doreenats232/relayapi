@@ -181,6 +181,7 @@ async function doAsk(p, prompt, dbg, conv, retry = true, info = {}) {
   let page, raw = '', selInfo = '', warm = false, restored = false, keep = false, ok = false, loginWall = false;
   const shot = async label => { if (!dbg || !page) return; try { shots.push({ label, img: (await page.screenshot({ type: 'jpeg', quality: 45 })).toString('base64') }); } catch {} };
   try {
+    if (info.aborted) throw new Error('Cancelled before it started');
     const ctx = await getCtx(p, step);
     if (ckey && convs.has(ckey)) { const c = convs.get(ckey); if (!c.page.isClosed()) { page = c.page; warm = true; info.how = 'continued chat'; c.last = Date.now(); step('Continuing the open chat', true, 'no page reload'); } else convs.delete(ckey); }
     if (!page && ckey && store.get(ckey)) { // saved chat from before a restart / idle close: reopen that exact chat instead of starting a new one
@@ -258,6 +259,7 @@ async function doAsk(p, prompt, dbg, conv, retry = true, info = {}) {
     let last = '', lastChange = Date.now(), result = ''; const t1 = Date.now();
     const maxMs = (+process.env.REPLY_TIMEOUT_SEC * 1000) || site.waitMs || 120000;
     while (Date.now() - t1 < maxMs) {
+      if (info.aborted) throw new Error('Cancelled by the app');
       await page.waitForTimeout(400);
       const cur = await read().catch(() => '');
       if (cur !== last) { last = cur; lastChange = Date.now(); if (info.onText && cur && !busyNow) { try { info.onText(cur); } catch {} } }
@@ -275,7 +277,7 @@ async function doAsk(p, prompt, dbg, conv, retry = true, info = {}) {
     ok = true;
     return dbg ? { ok: true, text: result, raw: raw.slice(-4000), selector: selInfo, trace, shots } : result;
   } catch (e) {
-    if (warm && retry) { // the kept page went stale: drop the page and retry once by reopening the SAME saved chat (a new chat with full history only if none is saved)
+    if (warm && retry && !info.aborted) { // the kept page went stale: drop the page and retry once by reopening the SAME saved chat (a new chat with full history only if none is saved)
       convs.delete(ckey); keep = false; info.stale = true;
       if (page) await page.close().catch(() => {});
       return doAsk(p, prompt, dbg, conv, false, info);

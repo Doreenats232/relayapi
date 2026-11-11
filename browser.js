@@ -258,12 +258,13 @@ async function doAsk(p, prompt, dbg, conv, retry = true, info = {}) {
     };
     let last = '', lastChange = Date.now(), result = ''; const t1 = Date.now();
     const maxMs = (+process.env.REPLY_TIMEOUT_SEC * 1000) || site.waitMs || 120000;
-    while (Date.now() - t1 < maxMs) {
+    // long replies (an app's code can take minutes) are never cut off while the text is still growing: the limit only bites once the site has gone quiet
+    while (Date.now() - t1 < maxMs || (last && Date.now() - lastChange < 25000 && Date.now() - t1 < 900000)) {
       if (info.aborted) throw new Error('Cancelled by the app');
       await page.waitForTimeout(400);
       const cur = await read().catch(() => '');
       if (cur !== last) { last = cur; lastChange = Date.now(); if (info.onText && cur && !busyNow) { try { info.onText(cur); } catch {} } }
-      else if (cur && !busyNow && Date.now() - lastChange >= STABLE_MS) { result = cur; break; }
+      else if (cur && !busyNow && Date.now() - lastChange >= ((cur.match(/```/g) || []).length % 2 ? Math.max(STABLE_MS, 8000) : STABLE_MS)) { result = cur; break; } // an unclosed code block means the AI is probably still writing: wait longer before calling it finished
     }
     if (!result && last) result = last;
     if (!result) throw new Error('Timed out waiting for reply (' + (busyNow ? 'the site still showed a busy/thinking state' : 'no new text appeared') + '). Page text at the end: ' + String(raw || '(none read)').replace(/\s+/g, ' ').slice(-600));

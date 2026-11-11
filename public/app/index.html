@@ -10,6 +10,7 @@
 <style>
 :root{--ink:#0c0d14;--s1:#14162299;--s2:#171a2b;--s3:#1e2238;--ln:#262a43;--tx:#eceefb;--mu:#8a90b2;--a1:#22c55e;--a2:#86efac;--glow1:#0f5a3aaa;--glow2:#0b6a4a77;--glow3:#14783acc;--ok:#4ade80;--bad:#ff6b81;--r:18px}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+[hidden]{display:none!important} /* panels that set their own display (chat, empty-state cover) ignored the hidden attribute and piled on top of the preview and code */
 html,body{margin:0;height:100%;background:var(--ink);color:var(--tx);font:15px/1.5 Outfit,system-ui,-apple-system,Roboto,sans-serif;overscroll-behavior:none}
 body{background:radial-gradient(900px 420px at 85% -10%,var(--glow1),transparent 60%),radial-gradient(700px 380px at -10% 110%,var(--glow2),transparent 60%),var(--ink)}
 #app{height:100dvh;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top)}
@@ -722,8 +723,8 @@ async function creatorView(openId){
     if(proj.title==='New app')proj.title=text.slice(0,40);head();
     proj.msgs.push({r:'user',t:text});
     const first=!proj.code,t0=Date.now();
-    const prompt=(first?'Build this app: ':'Here is the current app:\n```html\n'+(proj.code.length<24000?proj.code:'(too long to send again, continue from your previous version)')+'\n```\nChange it like this: ')+text;
-    $('#crmain').classList.add('building');showTab(tab);$('#crpv').hidden=false;$('#crcode').hidden=false;$('#cremp').hidden=true;$('#crcode').textContent='';
+    const prompt=(first?'Build this app: ':'Here is the current app:\n```html\n'+(proj.code.length<60000?proj.code:'(too long to send again, continue from your previous version)')+'\n```\nChange it like this: ')+text;
+    $('#crmain').classList.add('building');showTab('preview');$('#crpv').hidden=false;$('#crcode').hidden=false;$('#cremp').hidden=true;$('#crcode').textContent='';
     setS('Planning…');let acc='',lastR=0,lastLen=0;
     const live=all=>{acc=all;const c=crCode(all),code=$('#crcode');
       if(c){code.textContent=c;code.scrollTop=code.scrollHeight;const now=Date.now();

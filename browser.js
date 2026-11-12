@@ -245,7 +245,7 @@ async function doAsk(p, prompt, dbg, conv, retry = true, info = {}) {
       if (rsel) {
         const els = page.locator(rsel), n = await els.count();
         if (n > n0) { src = 'selector ' + rsel; return (await els.nth(n - 1).innerText()).trim(); }
-        if (!hinted || Date.now() - t1 < 60000) return ''; // known reply container did not grow yet: keep waiting (the AI may be thinking). Only after 60s fall back to reading the new page text. Falling back at once is what returned the sidebar's "New chat" as the reply
+        if (!hinted || Date.now() - t1 < 25000) return ''; // known reply container did not grow yet: keep waiting (the AI may be thinking). Only after 25s fall back to reading the new page text. Falling back at once is what returned the sidebar's "New chat" as the reply
       }
       src = 'auto-detect (new page text)';
       raw = await page.evaluate(() => document.body.innerText);

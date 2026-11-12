@@ -690,8 +690,10 @@ function crSave(p){try{localStorage['cr:'+p.id]=JSON.stringify(p);const l=CRL().
 function crDelete(id){localStorage.removeItem('cr:'+id);localStorage['cr:list']=JSON.stringify(CRL().filter(x=>x.id!==id))}
 const CR_SYS='You are an expert front-end developer inside an app builder. Reply with ONE short line saying what you will build, then ONE complete, self-contained HTML file inside a single ```html code block: inline CSS and JavaScript only, no external libraries, fonts, images or network requests, mobile-friendly, good-looking and fully working. When the user asks for a change, return the FULL updated file in one code block, never a diff. After the code block add at most one short sentence.';
 function crCode(t){let m=String(t).match(/```(?:html|HTML)?[ \t]*\r?\n([\s\S]*?)(?:```|$)/),c=m?m[1]:'';
-  if(!c){const i=String(t).search(/<!doctype html|<html[\s>]/i);if(i>=0)c=String(t).slice(i)}return c.replace(/\s+$/,'')}
-const crNote=t=>String(t).replace(/```[\s\S]*?(```|$)/g,'').replace(/\s+/g,' ').trim();
+  if(!c){const i=String(t).search(/<!doctype html|<html[\s>]/i);if(i>=0)c=String(t).slice(i)}
+  const e=c.toLowerCase().lastIndexOf('</html>');if(e>=0)c=c.slice(0,e+7); // the AI's closing sentence ("The app now features...") used to ride along after </html> and showed up inside the app as a second column
+  return c.replace(/\s+$/,'')}
+const crNote=t=>{t=String(t);if(/```/.test(t))return t.replace(/```[\s\S]*?(```|$)/g,'').replace(/\s+/g,' ').trim();const i=t.search(/<!doctype html|<html[\s>]/i);if(i<0)return t.replace(/\s+/g,' ').trim();const e=t.toLowerCase().lastIndexOf('</html>');return (t.slice(0,i).replace(/(^|\n)\s*(html|copy)\s*(?=\n|$)/gi,'$1')+' '+(e>=0?t.slice(e+7):'')).replace(/\s+/g,' ').trim()};
 const CR_SHIM='<script>(function(){function mk(){var d={};return{getItem:function(k){return k in d?d[k]:null},setItem:function(k,v){d[k]=String(v)},removeItem:function(k){delete d[k]},clear:function(){d={}},key:function(i){return Object.keys(d)[i]||null},get length(){return Object.keys(d).length}}}try{localStorage.getItem("x")}catch(e){try{Object.defineProperty(window,"localStorage",{value:mk()});Object.defineProperty(window,"sessionStorage",{value:mk()})}catch(e2){}}})();<\/script>';
 const crDoc=c=>!c?'':/<head[^>]*>/i.test(c)?c.replace(/<head[^>]*>/i,m=>m+CR_SHIM):CR_SHIM+c;
 function crProjects(){const l=CRL();

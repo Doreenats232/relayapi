@@ -4,10 +4,10 @@ const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 let browser; const queues = new Map();
 // per-site reading rules. busy: lines that mean "the AI is still working" (text can sit unchanged for a long time while it thinks, so don't call the reply finished while one is on screen);
 // strip: page furniture lines to drop from the reply; waitMs: how long to wait for a reply (default 120s)
-const SITE = { 'google.com': { busy: /^(thinking|searching|working on it|generating)(\.{3}|…)?$|^ai mode is (thinking|searching|working|generating)\b/i, strip: /^(ai mode conversation:.*|skip to (previous prompt|main content|next prompt)|ai mode|all|images|videos|news|more|sign in|ask anything|add to your search|ai responses may include mistakes\.?( learn more)?|learn more|show all|show more|dive deeper in ai mode|good response|bad response|copy|share|positive feedback|negative feedback|sources|thinking|searching)$/i, waitMs: 90000 }, 'gemini.google.com': { fresh: true, prewarm: true, busy: /^(gemini is (typing|thinking|generating|responding)|thinking|just a (sec|moment)|loading)(\.{3}|…)?$/i, after: /^gemini said$/i, strip: /^(gemini|sign in|get app|sign in to (connect|get|use|continue|save)\b.*|conversation with gemini|you said\b.*|gemini said|show thinking|hide thinking|copy|good response|bad response|share( & export)?|more options|redo|modify response|listen|gemini is ai and can make mistakes\.?)$/i, waitMs: 180000 }, 'miniapps.ai': { busy: /^(in progress|thinking(\.{3}|…)?|is typing(\.{3}|…)?|generating(\.{3}|…)?)$/i, strip: /^(M|You|AI Builder|Thought for .+|\d{1,2}:\d{2}\s?[AP]M|•|·|Done|Show (more|less))$/i, waitMs: 600000 } };
+const SITE = { 'deepseek.com': { strip: /^(new chat|message deepseek|deepthink( \(r1\))?|search|today|yesterday|previous \d+ days|thinking\.{0,3}|thought for .*|ai-generated, for reference only)$/i }, 'google.com': { busy: /^(thinking|searching|working on it|generating)(\.{3}|…)?$|^ai mode is (thinking|searching|working|generating)\b/i, strip: /^(ai mode conversation:.*|skip to (previous prompt|main content|next prompt)|ai mode|all|images|videos|news|more|sign in|ask anything|add to your search|ai responses may include mistakes\.?( learn more)?|learn more|show all|show more|dive deeper in ai mode|good response|bad response|copy|share|positive feedback|negative feedback|sources|thinking|searching)$/i, waitMs: 90000 }, 'gemini.google.com': { fresh: true, prewarm: true, busy: /^(gemini is (typing|thinking|generating|responding)|thinking|just a (sec|moment)|loading)(\.{3}|…)?$/i, after: /^gemini said$/i, strip: /^(gemini|sign in|get app|sign in to (connect|get|use|continue|save)\b.*|conversation with gemini|you said\b.*|gemini said|show thinking|hide thinking|copy|good response|bad response|share( & export)?|more options|redo|modify response|listen|gemini is ai and can make mistakes\.?)$/i, waitMs: 180000 }, 'miniapps.ai': { busy: /^(in progress|thinking(\.{3}|…)?|is typing(\.{3}|…)?|generating(\.{3}|…)?)$/i, strip: /^(M|You|AI Builder|Thought for .+|\d{1,2}:\d{2}\s?[AP]M|•|·|Done|Show (more|less))$/i, waitMs: 600000 } };
 const siteOf = p => { try { const h = new URL(p.url).hostname, k = Object.keys(SITE).sort((a, b) => b.length - a.length).find(k => h === k || h.endsWith('.' + k)); return k ? SITE[k] : {}; } catch { return {}; } };
 const HINTS = { 'chat.deepseek.com': '.ds-markdown', 'gemini.google.com': 'model-response message-content, .model-response-text' }; // known reply containers (used only if present on the page)
-const BOILER = /^(AI-generated, for reference only|Copy|Regenerate|Share|Like|Dislike|Retry|Read aloud|Edit message)$/i;
+const BOILER = /^(New chat|AI-generated, for reference only|Copy|Regenerate|Share|Like|Dislike|Retry|Read aloud|Edit message)$/i;
 const tidy = lines => lines.filter((l, i) => l && !BOILER.test(l) && l !== lines[i - 1]);
 const cl = v => { v = String(v || '').trim(); return /^(blank|auto|none|optional|n\/a)\b|press enter|auto-detect/i.test(v) ? '' : v; }; // ignore placeholder text pasted into selector fields
 // any editable thing: sites now use contenteditable="plaintext-only", custom elements (rich-textarea), search/untyped inputs...
@@ -245,7 +245,7 @@ async function doAsk(p, prompt, dbg, conv, retry = true, info = {}) {
       if (rsel) {
         const els = page.locator(rsel), n = await els.count();
         if (n > n0) { src = 'selector ' + rsel; return (await els.nth(n - 1).innerText()).trim(); }
-        if (!hinted || (n0 > 0 && Date.now() - t1 < 15000)) return ''; // known reply container did not grow: after 15s fall back to reading the new page text instead of waiting forever
+        if (!hinted || Date.now() - t1 < 60000) return ''; // known reply container did not grow yet: keep waiting (the AI may be thinking). Only after 60s fall back to reading the new page text. Falling back at once is what returned the sidebar's "New chat" as the reply
       }
       src = 'auto-detect (new page text)';
       raw = await page.evaluate(() => document.body.innerText);
@@ -271,7 +271,7 @@ async function doAsk(p, prompt, dbg, conv, retry = true, info = {}) {
     if (info.onText) { try { info.onText(result); } catch {} }
     step('Reply detected', true, `${result.length} chars via ${src}, took ${((Date.now() - t1) / 1000).toFixed(1)}s`);
     if (ckey) { // remember which chat this is so it survives restarts / idle closes
-      let u = page.url(); if (!warm) for (let i = 0; i < 8 && !isChatUrl(p, u); i++) { await page.waitForTimeout(400); u = page.url(); }
+      let u = page.url(); if (!warm) for (let i = 0; i < 25 && !isChatUrl(p, u); i++) { await page.waitForTimeout(400); u = page.url(); }
       if (isChatUrl(p, u) && store.get(ckey) !== u) store.set(ckey, u);
     }
     await shot('3. Reply received');

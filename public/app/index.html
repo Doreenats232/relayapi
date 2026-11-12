@@ -405,7 +405,7 @@ async function chatView(pn){
         while((i=buf.indexOf('\n\n'))>=0){const ev=buf.slice(0,i).trim();buf=buf.slice(i+2);if(!ev.startsWith('data:'))continue;const d=ev.slice(5).trim();if(d==='[DONE]')continue;
           let j;try{j=JSON.parse(d)}catch{continue}
           if(j.error)throw new Error(j.error.message||'The AI could not answer');
-      if(typeof j.relay_replace==='string'){all=j.relay_replace;onDelta&&onDelta(all);continue}
+      if(typeof j.relay_replace==='string'){me.content=j.relay_replace;if(cur===pn)draw();continue}
           const t=j.choices&&j.choices[0]&&j.choices[0].delta&&j.choices[0].delta.content;
           if(t&&cur===pn){me.content+=t;draw()}else if(t)me.content+=t}}
       delete me.pending;if(!me.content.trim()){me.content='No reply came back. Try again, or check the site is still signed in.';me.err=true;useStat(pn,false,'No reply')}else{notifyDone(cap(pn),me.content);useStat(pn,true)}
@@ -869,6 +869,7 @@ async function streamPlayground(body,onDelta,signal){
     while((i=buf.indexOf('\n\n'))>=0){const ev=buf.slice(0,i).trim();buf=buf.slice(i+2);if(!ev.startsWith('data:'))continue;const d=ev.slice(5).trim();if(d==='[DONE]')continue;
       let j;try{j=JSON.parse(d)}catch{continue}
       if(j.error)throw new Error(j.error.message||'The AI could not answer');
+      if(typeof j.relay_replace==='string'){all=j.relay_replace;onDelta&&onDelta(all);continue}
       const t=j.choices&&j.choices[0]&&j.choices[0].delta&&j.choices[0].delta.content;if(t){all+=t;onDelta&&onDelta(all)}}}
   return all;
 }

@@ -119,7 +119,7 @@ html[data-theme=amoled] body{background:#000}
 .crmain.building .crc{top:56%;border-top:2px solid var(--a1)}
 .crch{position:absolute;inset:0;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:8px}
 .crst{padding:2px 20px 6px;font-size:12px;color:var(--mu);min-height:18px}
-.crfull{position:fixed;inset:0;z-index:60;background:#fff}.crfull iframe{width:100%;height:100%;border:0}.crfull button{position:fixed;top:calc(10px + env(safe-area-inset-top));right:12px;z-index:61}
+.crfull{position:fixed;inset:0;z-index:60;background:#fff}.crfull iframe{width:100%;height:100%;border:0}.crfull button{position:fixed;top:calc(10px + env(safe-area-inset-top));right:10px;z-index:61;width:34px;height:34px;padding:0;border-radius:50%;border:0;background:rgba(0,0,0,.55);color:#fff;font-size:17px;line-height:34px;opacity:.6;touch-action:none}
 .tabs{overflow-x:auto}.tabs .chip{flex:none}
 .who{font-size:12px;margin:2px 8px -4px;font-weight:600}
 .vo{position:fixed;inset:0;z-index:40;display:flex;flex-direction:column;align-items:center;padding:calc(18px + env(safe-area-inset-top)) 20px calc(22px + env(safe-area-inset-bottom));background:radial-gradient(700px 520px at 50% 36%,var(--glow3),transparent 65%),#080913}
@@ -750,7 +750,11 @@ async function creatorView(openId){
   $('#bk').onclick=()=>location.hash='#/';
   window.addEventListener('hashchange',()=>{try{ctl&&ctl.abort()}catch{}},{once:true});
   document.querySelectorAll('#crtabs [data-t]').forEach(b=>b.onclick=()=>{if(!busy)showTab(b.dataset.t)});
-  $('#crfs').onclick=()=>{if(!proj.code){toast('Nothing to show yet');return}const o=document.createElement('div');o.className='crfull';o.innerHTML='<button class="btn sm" id="crx">Close</button><iframe sandbox="allow-scripts allow-forms allow-modals allow-popups" title="Full screen"></iframe>';document.body.appendChild(o);o.querySelector('iframe').srcdoc=crDoc(proj.code);o.querySelector('#crx').onclick=()=>o.remove()};
+  $('#crfs').onclick=()=>{if(!proj.code){toast('Nothing to show yet');return}const o=document.createElement('div');o.className='crfull';o.innerHTML='<button id="crx" aria-label="Close full screen (drag to move)">✕</button><iframe sandbox="allow-scripts allow-forms allow-modals allow-popups" title="Full screen"></iframe>';document.body.appendChild(o);o.querySelector('iframe').srcdoc=crDoc(proj.code);const x=o.querySelector('#crx');let sx,sy,bx,by,mv=0;
+    // small round button you can drag out of the way of the app's own buttons; a tap closes
+    x.onpointerdown=e=>{x.setPointerCapture(e.pointerId);sx=e.clientX;sy=e.clientY;const r=x.getBoundingClientRect();bx=r.left;by=r.top;mv=0};
+    x.onpointermove=e=>{if(sx==null)return;const dx=e.clientX-sx,dy=e.clientY-sy;if(Math.abs(dx)+Math.abs(dy)>8)mv=1;if(mv){x.style.left=Math.max(0,Math.min(innerWidth-34,bx+dx))+'px';x.style.top=Math.max(0,Math.min(innerHeight-34,by+dy))+'px';x.style.right='auto'}};
+    x.onpointerup=()=>{sx=null;if(!mv)o.remove()}};
   $('#crsd').onclick=()=>{if(busy){try{ctl&&ctl.abort()}catch{}}else build()};
   ta.addEventListener('input',()=>{ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,140)+'px'});
   $('#crp').onclick=crProjects;

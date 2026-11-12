@@ -151,6 +151,8 @@ html[data-theme=amoled] body{background:#000}
 <div id="hi"><b>Hello</b><small>Branch test</small></div>
 <div id="app"></div>
 <script>
+const BUILD='__BUILD__'; // filled in by the server; if the phone holds an older page than the server, reload once to pick up the new one
+(async()=>{try{const j=await (await fetch('/api/version',{cache:'no-store'})).json();if(BUILD.indexOf('__')<0&&j.build&&j.build!==BUILD&&!sessionStorage.relayReloaded){sessionStorage.relayReloaded='1';location.reload()}else if(j.build===BUILD)sessionStorage.removeItem('relayReloaded')}catch{}})();
 'use strict';
 const $=s=>document.querySelector(s), A=window.Android||null, FENCE='`'.repeat(3);
 const AB=(n,...a)=>{try{return A&&typeof A[n]==='function'?A[n](...a):undefined}catch{return undefined}};
@@ -507,7 +509,7 @@ function settingsView(){
    <button class="row" id="vbgb"><div class="m"><b>Voice keeps running in the background</b><small>Lets a voice meeting continue with the screen off or in another app. Shows a notification while it runs.</small></div>${sw('vbg',localStorage.vbg!=='0')}</button>
    <button class="row" id="vcb"><div class="m"><b>Voices</b><small>Phone or human voice, speed, and a voice for each AI</small></div>›</button>
    <button class="row" id="bub"><div class="m"><b>Backup &amp; restore</b><small>Keep your chats, notes and settings safe</small></div>›</button>
-   <button class="row" id="rpb"><div class="m"><b>Report a problem</b><small>Shares a short report you can send me</small></div>›</button>
+   <button class="row" id="rpb"><div class="m"><b>Report a problem</b><small>Shares a short report you can send me</small></div>›</button><div class="mu" style="text-align:center;font-size:12px;margin:14px 0 4px">App version ${esc(BUILD)}</div>
    <button class="row" id="usgb"><div class="m"><b>Usage</b><small>Replies, errors and sign-in problems per AI</small></div>›</button>
    ${A?`<button class="row" id="pcb"><div class="m"><b>Let the AI control my phone</b><small>Open apps, set alarms, call, text, search</small></div>${sw('pc',phoneOn())}</button>
    <button class="row" id="pab"><div class="m"><b>Ask before it acts</b><small>Show a Run button for each action</small></div>${sw('pa',askFirst())}</button>

@@ -52,6 +52,10 @@ app.use('/api/playground', express.json({ limit: '28mb' }));
 app.use('/api/backup', express.json({ limit: '6mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use((req, res, next) => { res.set('Access-Control-Allow-Origin', '*'); res.set('Access-Control-Expose-Headers', 'X-Relay-Mode'); res.set('Access-Control-Allow-Headers', 'Authorization,Content-Type,X-Conversation-Id'); if (req.method === 'OPTIONS') return res.sendStatus(204); next(); });
+const BUILD = (process.env.RENDER_GIT_COMMIT || '').slice(0, 7) || 'dev' + Date.now().toString(36);
+// the app page is never cached, so a new deploy always reaches the phone on the next open (a stale copy was keeping old bugs alive)
+app.get(['/app', '/app/', '/app/index.html'], (req, res) => { res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }); res.send(fs.readFileSync(path.join(__dirname, 'public/app/index.html'), 'utf8').replace(/__BUILD__/g, BUILD)); });
+app.get('/api/version', (req, res) => { res.set('Cache-Control', 'no-store'); res.json({ build: BUILD }); });
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ---------- auth ----------

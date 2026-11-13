@@ -216,6 +216,14 @@ button:active:not(:disabled){transform:scale(.97)}
 .crmain.building .crc{border-top:2px solid var(--a1)}
 .crst{padding:2px 22px 8px}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* App Creator extras */
+#crsv{flex-wrap:nowrap;overflow-x:auto}#crsv .chip{white-space:nowrap;flex:none}
+.crst{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.crst #crs{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.crdev{display:flex;gap:4px;flex:none}.crdev button{padding:3px 10px;border-radius:99px;border:1px solid var(--ln);background:var(--s3);color:var(--mu);font-size:12px}.crdev button.on{border-color:var(--a1);color:var(--tx)}
+.chip.warn{border-color:var(--bad);color:#ffd0d7;background:#ff6b8118}
+.crmain iframe{transition:none}
 </style>
 </head>
 <body>
@@ -758,15 +766,23 @@ function shrinkImage(f){return new Promise(res=>{if(!(f.type||'').startsWith('im
   img.onerror=()=>{URL.revokeObjectURL(u);res(null)};img.src=u})}
 /* ---------- App Creator: describe an app, watch it get built ---------- */
 const CRL=()=>jget('cr:list',[]),crLoad=id=>jget('cr:'+id,null);
-function crSave(p){try{localStorage['cr:'+p.id]=JSON.stringify(p);const l=CRL().filter(x=>x.id!==p.id);l.unshift({id:p.id,title:p.title,at:Date.now()});localStorage['cr:list']=JSON.stringify(l.slice(0,30))}catch{toast('Could not save (storage is full)')}}
+function crSave(p){const put=()=>{localStorage['cr:'+p.id]=JSON.stringify(p);const l=CRL().filter(x=>x.id!==p.id);l.unshift({id:p.id,title:p.title,at:Date.now()});localStorage['cr:list']=JSON.stringify(l.slice(0,30))};
+  try{put()}catch{try{for(const x of CRL()){if(x.id===p.id)continue;const o=crLoad(x.id);if(o&&o.vers){delete o.vers;localStorage['cr:'+x.id]=JSON.stringify(o)}}put()}catch{toast('Could not save (storage is full)')}}}
 function crDelete(id){localStorage.removeItem('cr:'+id);localStorage['cr:list']=JSON.stringify(CRL().filter(x=>x.id!==id))}
-const CR_SYS='You are an expert front-end developer inside an app builder. Reply with ONE short line saying what you will build, then ONE complete, self-contained HTML file inside a single ```html code block: inline CSS and JavaScript only, no external libraries, fonts, images or network requests, mobile-friendly, good-looking and fully working. When the user asks for a change, return the FULL updated file in one code block, never a diff. After the code block add at most one short sentence.';
+const CR_SYS='You are a senior front-end engineer and product designer inside an app builder. Reply with ONE short line saying what you will build, then ONE complete, self-contained HTML file inside a single ```html code block, and nothing after </html> except at most one short sentence outside the code block. Rules for the file: inline CSS and JavaScript only; no external libraries, fonts, images, CDNs or network requests (draw icons with emoji, inline SVG or CSS). Design for a phone first: include the viewport meta tag, no sideways scrolling, tap targets at least 44px, readable text, generous spacing, a modern premium look with a consistent colour palette set as CSS variables, rounded corners, soft shadows and smooth transitions, plus an empty state wherever a list can be empty. It must work on the first run with no errors: validate inputs, guard against missing elements, never use alert, confirm or prompt, and keep data in memory (the preview cannot keep data between visits). Make the app complete and genuinely useful, not a mock-up. When the user asks for a change, return the FULL updated file in one code block, never a diff, and keep everything that already works.';
 function crCode(t){let m=String(t).match(/```(?:html|HTML)?[ \t]*\r?\n([\s\S]*?)(?:```|$)/),c=m?m[1]:'';
   if(!c){const i=String(t).search(/<!doctype html|<html[\s>]/i);if(i>=0)c=String(t).slice(i)}
   const e=c.toLowerCase().lastIndexOf('</html>');if(e>=0)c=c.slice(0,e+7); // the AI's closing sentence ("The app now features...") used to ride along after </html> and showed up inside the app as a second column
   return c.replace(/\s+$/,'')}
 const crNote=t=>{t=String(t);if(/```/.test(t))return t.replace(/```[\s\S]*?(```|$)/g,'').replace(/\s+/g,' ').trim();const i=t.search(/<!doctype html|<html[\s>]/i);if(i<0)return t.replace(/\s+/g,' ').trim();const e=t.toLowerCase().lastIndexOf('</html>');return (t.slice(0,i).replace(/(^|\n)\s*(html|copy)\s*(?=\n|$)/gi,'$1')+' '+(e>=0?t.slice(e+7):'')).replace(/\s+/g,' ').trim()};
-const CR_SHIM='<script>(function(){function mk(){var d={};return{getItem:function(k){return k in d?d[k]:null},setItem:function(k,v){d[k]=String(v)},removeItem:function(k){delete d[k]},clear:function(){d={}},key:function(i){return Object.keys(d)[i]||null},get length(){return Object.keys(d).length}}}try{localStorage.getItem("x")}catch(e){try{Object.defineProperty(window,"localStorage",{value:mk()});Object.defineProperty(window,"sessionStorage",{value:mk()})}catch(e2){}}})();<\/script>';
+const CR_SHIM='<script>('+function(){
+  function mk(){var d={};return{getItem:function(k){return k in d?d[k]:null},setItem:function(k,v){d[k]=String(v)},removeItem:function(k){delete d[k]},clear:function(){d={}},key:function(i){return Object.keys(d)[i]||null},get length(){return Object.keys(d).length}}}
+  try{localStorage.getItem('x')}catch(e){try{Object.defineProperty(window,'localStorage',{value:mk()});Object.defineProperty(window,'sessionStorage',{value:mk()})}catch(e2){}}
+  function rep(m){try{parent.postMessage({crerr:String(m)},'*')}catch(e){}}
+  window.addEventListener('error',function(e){rep((e.message||'Error')+(e.lineno?' (line '+e.lineno+')':''))});
+  window.addEventListener('unhandledrejection',function(e){rep('Promise: '+((e.reason&&e.reason.message)||e.reason))});
+  var ce=console.error;console.error=function(){rep('console.error: '+[].slice.call(arguments).join(' '));try{ce.apply(console,arguments)}catch(e){}};
+}.toString()+')();<\/script>';
 const crDoc=c=>!c?'':/<head[^>]*>/i.test(c)?c.replace(/<head[^>]*>/i,m=>m+CR_SHIM):CR_SHIM+c;
 function crProjects(){const l=CRL();
   const v=sheet(`<h2>My apps</h2><button class="btn" id="crn" style="margin-bottom:10px">New app</button>`+(l.length?l.map(x=>`<div class="row plain" data-o="${esc(x.id)}" style="cursor:pointer"><div class="m"><b style="font-weight:600">${esc(x.title)}</b><small>${new Date(x.at).toLocaleString()}</small></div><button class="ib" data-d="${esc(x.id)}" aria-label="Delete">×</button></div>`).join(''):'<p class="mu">No apps yet. Describe one and it will be saved here.</p>'));
@@ -776,32 +792,38 @@ function crProjects(){const l=CRL();
 async function creatorView(openId){
   try{if(!providers.length)providers=await api('/api/providers')}catch{}
   let proj=(openId&&crLoad(openId))||{id:'p'+Date.now().toString(36),title:'New app',ai:'',code:'',msgs:[]};
-  let tab='preview',busy=false,ctl=null;
+  let tab='preview',busy=false,ctl=null,errs=[],dev=+localStorage.crdev||0;
   const ai0=providers.some(p=>p.name===proj.ai)?proj.ai:((providers.length&&pickAI('build an app code').name)||'');
-  const IDEAS=['A to-do list with colours','A calculator','Snake game','Landing page for a bakery','Expense tracker','Quiz about space'];
+  const STOPIC='<svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2.5" fill="#0c0d14"/></svg>';
+  const IDEAS=['A to-do list with colours','A calculator','Snake game','Landing page for a bakery','Expense tracker','Quiz about space','Habit tracker with streaks','Pomodoro focus timer','Unit converter','Memory card game','Notes app with search','Tip splitter','Flashcards to learn Spanish','Tic-tac-toe against the computer','Recipe scaler','Weather dashboard with sample data'].sort(()=>Math.random()-.5).slice(0,6);
   $('#app').innerHTML=`<div class="top"><button class="ib" id="bk" aria-label="Back">${ICON.back}</button><h1 id="crt" style="font-size:19px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></h1><button class="ib" id="crp" aria-label="My apps">${ICON.new}</button><button class="ib" id="crm" aria-label="More">⋯</button></div>
-  <div class="chips" id="crsv" style="padding:0 16px;margin-bottom:8px"><button class="chip" id="crnew">＋ New app</button><button class="chip" id="crsaved">Saved apps</button><button class="chip" id="crcopy">Save a copy</button></div>
+  <div class="chips" id="crsv" style="padding:0 16px;margin-bottom:8px"><button class="chip" id="crnew">＋ New app</button><button class="chip" id="crsaved">Saved apps</button><button class="chip" id="crcopy">Save a copy</button><button class="chip" id="crhist">History</button></div>
   <div class="crbar"><select id="cra" class="in">${providers.map(p=>`<option value="${esc(p.name)}" ${p.name===ai0?'selected':''}>${esc(p.name)}${p.hasSession?'':' (not signed in)'}</option>`).join('')}</select><div class="chips" id="crtabs"><button class="chip on" data-t="preview">Preview</button><button class="chip" data-t="code">Code</button><button class="chip" data-t="chat">Chat</button><button class="chip" id="crfs">Full screen</button></div></div>
   <div class="crmain" id="crmain"><div id="crpv"><iframe id="crf" sandbox="allow-scripts allow-forms allow-modals allow-popups" title="App preview"></iframe><div class="cremp" id="cremp"><b style="color:var(--tx);font-size:18px">What should we build?</b><span>Describe an app below. You will see the code being written and the app appear live.</span><div id="crrecent"></div></div></div><pre class="crc" id="crcode" hidden></pre><div class="crch" id="crchat" hidden></div></div>
-  <div class="crst" id="crs"></div><div class="rbar" id="crq"></div>
+  <div class="crst"><span id="crs"></span><span class="crdev"><button data-w="0" class="on">Fit</button><button data-w="820">Wide</button><button id="crrl" aria-label="Reload preview">↻</button></span></div><div class="rbar" id="crq"></div>
   <div class="composer"><textarea id="crta" rows="1" placeholder="Describe your app, or what to change…"></textarea><button class="send" id="crsd" aria-label="Build">${ICON.send}</button></div>`;
   const ta=$('#crta'),setS=t=>{$('#crs').textContent=t};
   const showTab=t=>{tab=t;$('#crpv').hidden=t!=='preview'&&!busy;$('#crcode').hidden=t!=='code'&&!busy;$('#crchat').hidden=t!=='chat';
     if(t==='chat'){$('#crpv').hidden=true;$('#crcode').hidden=true}
-    document.querySelectorAll('#crtabs [data-t]').forEach(b=>b.classList.toggle('on',b.dataset.t===t))};
-  const renderPreview=()=>{const f=$('#crf');if(!f)return;f.srcdoc=crDoc(proj.code);$('#cremp').hidden=!!proj.code||busy};
+    document.querySelectorAll('#crtabs [data-t]').forEach(b=>b.classList.toggle('on',b.dataset.t===t));applyDev()};
+  const applyDev=()=>{const f=$('#crf'),pv=$('#crpv');if(!f||!pv)return;const W=pv.clientWidth||0;
+    if(dev&&W){const k=W/dev;Object.assign(f.style,{width:dev+'px',height:(100/k)+'%',right:'auto',transform:'scale('+k+')',transformOrigin:'0 0'})}else Object.assign(f.style,{width:'',height:'',right:'',transform:'',transformOrigin:''});
+    document.querySelectorAll('.crdev [data-w]').forEach(b=>b.classList.toggle('on',+b.dataset.w===dev))};
+  const renderPreview=()=>{const f=$('#crf');if(!f)return;if(!busy)errs=[];f.srcdoc=crDoc(proj.code);$('#cremp').hidden=!!proj.code||busy;applyDev()};
   const renderChat=()=>{const c=$('#crchat');c.innerHTML=proj.msgs.length?proj.msgs.map(m=>`<div class="msg ${m.r==='user'?'user':'assistant'}">${esc(m.t||'(code only)')}</div>`).join(''):'<p class="mu">Your requests and the AI notes will show here.</p>';c.scrollTop=c.scrollHeight};
-  const drawQuick=()=>{$('#crq').innerHTML=proj.code?['Make it prettier','Add a dark mode','Make the buttons bigger','Fix any bugs'].map(t=>`<button class="chip" data-q="${esc(t)}">${esc(t)}</button>`).join(''):IDEAS.map(t=>`<button class="chip" data-q="${esc(t)}">${esc(t)}</button>`).join('');
-    $('#crq').querySelectorAll('[data-q]').forEach(b=>b.onclick=()=>{if(!busy){ta.value=b.dataset.q;build()}})};
+  const drawQuick=()=>{const fix=errs.length?`<button class="chip warn" data-fix="1">⚠ Fix ${errs.length} error${errs.length>1?'s':''}</button>`:'';
+    $('#crq').innerHTML=fix+(proj.code?['Make it prettier','Add a dark mode','Make the buttons bigger','Add animations','Add a settings screen','Fix any bugs'].map(t=>`<button class="chip" data-q="${esc(t)}">${esc(t)}</button>`).join(''):IDEAS.map(t=>`<button class="chip" data-q="${esc(t)}">${esc(t)}</button>`).join(''));
+    $('#crq').querySelectorAll('[data-q]').forEach(b=>b.onclick=()=>{if(!busy){ta.value=b.dataset.q;build()}});
+    const fb=$('#crq').querySelector('[data-fix]');if(fb)fb.onclick=()=>{if(busy||!errs.length)return;build('The app shows these errors when it runs. Fix them and return the full updated file:\n- '+errs.join('\n- '),'Fix the errors the preview showed')}};
   const drawSv=()=>{const b=$('#crsaved');if(b)b.textContent='Saved apps · '+CRL().length};
   const drawRecent=()=>{const r=$('#crrecent');if(!r)return;const l=CRL().filter(x=>x.id!==proj.id).slice(0,3);r.innerHTML=l.length?'<small style="display:block;margin:12px 0 6px">Or carry on with an app you saved</small>'+l.map(x=>`<button class="chip" data-o="${esc(x.id)}">${esc(x.title)}</button>`).join(''):'';r.querySelectorAll('[data-o]').forEach(b=>b.onclick=()=>{if(busy){toast('Wait for the build to finish');return}location.hash='#/creator/'+b.dataset.o})};
   const head=()=>{$('#crt').textContent=proj.title;drawSv()};
-  async function build(){
-    const text=ta.value.trim();if(!text||busy)return;
+  async function build(over,shown){
+    const text=(typeof over==='string'&&over?over:ta.value).trim();if(!text||busy)return;
     const ai=$('#cra').value;if(!ai){toast('Add an AI first');return}
-    proj.ai=ai;ta.value='';ta.style.height='auto';busy=true;ctl=new AbortController();
+    proj.ai=ai;if(typeof over!=='string')ta.value='';ta.style.height='auto';busy=true;ctl=new AbortController();$('#crsd').innerHTML=STOPIC;
     if(proj.title==='New app')proj.title=text.slice(0,40);head();
-    proj.msgs.push({r:'user',t:text});
+    proj.msgs.push({r:'user',t:shown||text});
     const first=!proj.code,t0=Date.now();
     const prompt=(first?'Build this app: ':'Here is the current app:\n```html\n'+(proj.code.length<60000?proj.code:'(too long to send again, continue from your previous version)')+'\n```\nChange it like this: ')+text;
     $('#crmain').classList.add('building');showTab('preview');$('#crpv').hidden=false;$('#crcode').hidden=false;$('#cremp').hidden=true;$('#crcode').textContent='';
@@ -814,17 +836,25 @@ async function creatorView(openId){
     try{
       const all=await streamPlayground({model:ai,room:'cr'+proj.id,stream:true,messages:[{role:'system',content:CR_SYS},{role:'user',content:prompt}]},live,ctl.signal);
       const c=crCode(all||acc);
-      if(c){proj.code=c;proj.msgs.push({r:'ai',t:crNote(all)||'Built it.'});setS('Done in '+Math.round((Date.now()-t0)/1000)+'s · '+c.split('\n').length+' lines')}
+      if(c){if(proj.code&&proj.code!==c){proj.vers=[{code:proj.code,at:Date.now(),note:shown||text},...(proj.vers||[])].slice(0,4)}proj.code=c;proj.msgs.push({r:'ai',t:crNote(all)||'Built it.'});setS('Done in '+Math.round((Date.now()-t0)/1000)+'s · '+c.split('\n').length+' lines')}
       else{proj.msgs.push({r:'ai',t:crNote(all)||'The AI did not send any app code.'});setS('No app code came back');toast('The AI did not return app code. Try again or pick another AI.')}
       notifyDone('App Creator',c?'Your app is ready':'The build finished');useStat(ai,!!c,c?'':'No app code');
     }catch(e){if(e&&e.name==='AbortError'){if($('#crs'))setS('Stopped')}else{proj.msgs.push({r:'ai',t:'Error: '+e.message});if($('#crs'))setS('Failed: '+String(e.message).slice(0,80));useStat(ai,false,e.message)}}
     busy=false;ctl=null;crSave(proj);if(!$('#crmain'))return; // user left the screen: the build is still saved
-    drawSv();
+    drawSv();$('#crsd').innerHTML=ICON.send;
     $('#crmain').classList.remove('building');renderPreview();renderChat();drawQuick();showTab(proj.code&&tab==='chat'?'chat':'preview');if(tab==='preview'){$('#crcode').textContent=proj.code}
   }
   head();renderPreview();renderChat();drawQuick();drawRecent();$('#crcode').textContent=proj.code;showTab('preview');
   $('#bk').onclick=()=>location.hash='#/';
-  window.addEventListener('hashchange',()=>{try{ctl&&ctl.abort()}catch{}},{once:true});
+  const onMsg=e=>{const d=e.data;if(!d||typeof d.crerr!=='string'||busy)return;const f=$('#crf');if(!f||e.source!==f.contentWindow)return;const m=d.crerr.slice(0,200);if(!errs.includes(m)&&errs.length<5){errs.push(m);drawQuick()}};
+  window.addEventListener('message',onMsg);
+  window.addEventListener('hashchange',()=>{try{ctl&&ctl.abort()}catch{}window.removeEventListener('message',onMsg)},{once:true});
+  ta.oninput=()=>{ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,140)+'px'};
+  document.querySelectorAll('.crdev [data-w]').forEach(b=>b.onclick=()=>{dev=+b.dataset.w;localStorage.crdev=dev;applyDev()});
+  $('#crrl').onclick=()=>{if(!proj.code){toast('Nothing to reload yet');return}renderPreview();drawQuick();toast('Preview reloaded')};
+  $('#crhist').onclick=()=>{if(busy){toast('Wait for the build to finish');return}const vs=proj.vers||[];if(!vs.length){toast('Earlier versions appear here after you change the app');return}
+    const w=sheet(`<h2>History</h2><p class="mu">Tap a version to bring it back. The version you have now is kept in the history too.</p>`+vs.map((v,i)=>`<div class="row plain" data-v="${i}" style="cursor:pointer"><div class="m"><b style="font-weight:600">${i===0?'Previous version':'Version '+(vs.length-i)}</b><small>${esc(String(v.note||'').slice(0,60))} · ${new Date(v.at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</small></div><span class="mu">Restore</span></div>`).join(''));
+    w.querySelectorAll('[data-v]').forEach(r=>r.onclick=()=>{const i=+r.dataset.v,v=vs[i];proj.vers=[{code:proj.code,at:Date.now(),note:'Before restoring'},...vs.filter((_,j)=>j!==i)].slice(0,4);proj.code=v.code;crSave(proj);w.remove();renderPreview();$('#crcode').textContent=proj.code;drawQuick();showTab('preview');toast('Restored')})};
   document.querySelectorAll('#crtabs [data-t]').forEach(b=>b.onclick=()=>{if(!busy)showTab(b.dataset.t)});
   $('#crfs').onclick=()=>{if(!proj.code){toast('Nothing to show yet');return}const o=document.createElement('div');o.className='crfull';o.innerHTML='<button id="crx" aria-label="Close full screen (drag to move)">✕</button><iframe sandbox="allow-scripts allow-forms allow-modals allow-popups" title="Full screen"></iframe>';document.body.appendChild(o);o.querySelector('iframe').srcdoc=crDoc(proj.code);const x=o.querySelector('#crx');let sx,sy,bx,by,mv=0;
     // small round button you can drag out of the way of the app's own buttons; a tap closes

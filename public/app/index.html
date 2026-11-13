@@ -708,8 +708,9 @@ async function creatorView(openId){
   const ai0=providers.some(p=>p.name===proj.ai)?proj.ai:((providers.length&&pickAI('build an app code').name)||'');
   const IDEAS=['A to-do list with colours','A calculator','Snake game','Landing page for a bakery','Expense tracker','Quiz about space'];
   $('#app').innerHTML=`<div class="top"><button class="ib" id="bk" aria-label="Back">${ICON.back}</button><h1 id="crt" style="font-size:19px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></h1><button class="ib" id="crp" aria-label="My apps">${ICON.new}</button><button class="ib" id="crm" aria-label="More">⋯</button></div>
+  <div class="chips" id="crsv" style="padding:0 16px;margin-bottom:8px"><button class="chip" id="crnew">＋ New app</button><button class="chip" id="crsaved">Saved apps</button><button class="chip" id="crcopy">Save a copy</button></div>
   <div class="crbar"><select id="cra" class="in">${providers.map(p=>`<option value="${esc(p.name)}" ${p.name===ai0?'selected':''}>${esc(p.name)}${p.hasSession?'':' (not signed in)'}</option>`).join('')}</select><div class="chips" id="crtabs"><button class="chip on" data-t="preview">Preview</button><button class="chip" data-t="code">Code</button><button class="chip" data-t="chat">Chat</button><button class="chip" id="crfs">Full screen</button></div></div>
-  <div class="crmain" id="crmain"><div id="crpv"><iframe id="crf" sandbox="allow-scripts allow-forms allow-modals allow-popups" title="App preview"></iframe><div class="cremp" id="cremp"><b style="color:var(--tx);font-size:18px">What should we build?</b><span>Describe an app below. You will see the code being written and the app appear live.</span></div></div><pre class="crc" id="crcode" hidden></pre><div class="crch" id="crchat" hidden></div></div>
+  <div class="crmain" id="crmain"><div id="crpv"><iframe id="crf" sandbox="allow-scripts allow-forms allow-modals allow-popups" title="App preview"></iframe><div class="cremp" id="cremp"><b style="color:var(--tx);font-size:18px">What should we build?</b><span>Describe an app below. You will see the code being written and the app appear live.</span><div id="crrecent"></div></div></div><pre class="crc" id="crcode" hidden></pre><div class="crch" id="crchat" hidden></div></div>
   <div class="crst" id="crs"></div><div class="rbar" id="crq"></div>
   <div class="composer"><textarea id="crta" rows="1" placeholder="Describe your app, or what to change…"></textarea><button class="send" id="crsd" aria-label="Build">${ICON.send}</button></div>`;
   const ta=$('#crta'),setS=t=>{$('#crs').textContent=t};
@@ -720,7 +721,9 @@ async function creatorView(openId){
   const renderChat=()=>{const c=$('#crchat');c.innerHTML=proj.msgs.length?proj.msgs.map(m=>`<div class="msg ${m.r==='user'?'user':'assistant'}">${esc(m.t||'(code only)')}</div>`).join(''):'<p class="mu">Your requests and the AI notes will show here.</p>';c.scrollTop=c.scrollHeight};
   const drawQuick=()=>{$('#crq').innerHTML=proj.code?['Make it prettier','Add a dark mode','Make the buttons bigger','Fix any bugs'].map(t=>`<button class="chip" data-q="${esc(t)}">${esc(t)}</button>`).join(''):IDEAS.map(t=>`<button class="chip" data-q="${esc(t)}">${esc(t)}</button>`).join('');
     $('#crq').querySelectorAll('[data-q]').forEach(b=>b.onclick=()=>{if(!busy){ta.value=b.dataset.q;build()}})};
-  const head=()=>{$('#crt').textContent=proj.title};
+  const drawSv=()=>{const b=$('#crsaved');if(b)b.textContent='Saved apps · '+CRL().length};
+  const drawRecent=()=>{const r=$('#crrecent');if(!r)return;const l=CRL().filter(x=>x.id!==proj.id).slice(0,3);r.innerHTML=l.length?'<small style="display:block;margin:12px 0 6px">Or carry on with an app you saved</small>'+l.map(x=>`<button class="chip" data-o="${esc(x.id)}">${esc(x.title)}</button>`).join(''):'';r.querySelectorAll('[data-o]').forEach(b=>b.onclick=()=>{if(busy){toast('Wait for the build to finish');return}location.hash='#/creator/'+b.dataset.o})};
+  const head=()=>{$('#crt').textContent=proj.title;drawSv()};
   async function build(){
     const text=ta.value.trim();if(!text||busy)return;
     const ai=$('#cra').value;if(!ai){toast('Add an AI first');return}
@@ -744,9 +747,10 @@ async function creatorView(openId){
       notifyDone('App Creator',c?'Your app is ready':'The build finished');useStat(ai,!!c,c?'':'No app code');
     }catch(e){if(e&&e.name==='AbortError'){if($('#crs'))setS('Stopped')}else{proj.msgs.push({r:'ai',t:'Error: '+e.message});if($('#crs'))setS('Failed: '+String(e.message).slice(0,80));useStat(ai,false,e.message)}}
     busy=false;ctl=null;crSave(proj);if(!$('#crmain'))return; // user left the screen: the build is still saved
+    drawSv();
     $('#crmain').classList.remove('building');renderPreview();renderChat();drawQuick();showTab(proj.code&&tab==='chat'?'chat':'preview');if(tab==='preview'){$('#crcode').textContent=proj.code}
   }
-  head();renderPreview();renderChat();drawQuick();$('#crcode').textContent=proj.code;showTab('preview');
+  head();renderPreview();renderChat();drawQuick();drawRecent();$('#crcode').textContent=proj.code;showTab('preview');
   $('#bk').onclick=()=>location.hash='#/';
   window.addEventListener('hashchange',()=>{try{ctl&&ctl.abort()}catch{}},{once:true});
   document.querySelectorAll('#crtabs [data-t]').forEach(b=>b.onclick=()=>{if(!busy)showTab(b.dataset.t)});
@@ -757,7 +761,11 @@ async function creatorView(openId){
     x.onpointerup=()=>{sx=null;if(!mv)o.remove()}};
   $('#crsd').onclick=()=>{if(busy){try{ctl&&ctl.abort()}catch{}}else build()};
   ta.addEventListener('input',()=>{ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,140)+'px'});
-  $('#crp').onclick=crProjects;
+  $('#crp').onclick=crProjects;$('#crsaved').onclick=crProjects;
+  $('#crnew').onclick=()=>{if(busy){toast('Wait for the build to finish, or press stop');return}if(!proj.code&&!proj.msgs.length){toast('This is already a new app');return}crSave(proj);const same=location.hash==='#/creator';location.hash='#/creator';if(same)route()};
+  $('#crcopy').onclick=()=>{if(!proj.code){toast('Build something first');return}if(busy){toast('Wait for the build to finish');return}
+    const w=sheet(`<h2>Save a copy</h2><p class="mu">Keeps this version safe. You can carry on changing this app, or start a new one, and open the copy any time from Saved apps.</p><input class="in" id="cn" value="${esc(proj.title)} (saved)"><button class="btn" id="cs" style="margin-top:12px">Save</button>`);
+    w.querySelector('#cs').onclick=()=>{const c=JSON.parse(JSON.stringify(proj));c.id='p'+Date.now().toString(36);c.title=(w.querySelector('#cn').value.trim()||c.title).slice(0,60);crSave(c);crSave(proj);drawSv();w.remove();toast('Saved as "'+c.title+'"')}};
   $('#crm').onclick=()=>{const v=sheet(`<h2>${esc(proj.title)}</h2>
     <button class="row" id="m1"><div class="m"><b>Copy code</b></div></button><button class="row" id="m2"><div class="m"><b>Share code</b><small>Send the HTML file text to another app</small></div></button>
     <button class="row" id="m3"><div class="m"><b>Rename</b></div></button><button class="row" id="m4"><div class="m"><b>Paste code from somewhere else</b><small>For example an app you built yourself on another site</small></div></button>

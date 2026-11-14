@@ -23,7 +23,7 @@ const ctxs = new Map();   // providerId -> { ctx, sig }
 const convs = new Map();  // "user:provider:conversation" -> { page, pid, last }
 const spares = new Map(); // providerId -> { promise, at }
 // saved chats: conversation key -> chat page URL, so a chat survives restarts, idle closes and evictions. server.js plugs in the real (Turso-backed) store.
-let store = { get: () => null, set: () => {}, del: () => {} };
+let store = { get: () => null, set: () => {}, del: () => {}, touch: () => {} };
 const pathOf = u => { try { return new URL(u).pathname.replace(/\/+$/, ''); } catch { return ''; } };
 const LOGINISH = /login|signin|sign-in|sign_in|auth/i, LOGIN_URL = /login|signin|sign-in|auth/i;
 const isChatUrl = (p, u) => { const a = pathOf(u); return !!a && a !== pathOf(p.url) && !LOGINISH.test(a); }; // true once the site moved to a real chat URL
@@ -272,7 +272,7 @@ async function doAsk(p, prompt, dbg, conv, retry = true, info = {}) {
     step('Reply detected', true, `${result.length} chars via ${src}, took ${((Date.now() - t1) / 1000).toFixed(1)}s`);
     if (ckey) { // remember which chat this is so it survives restarts / idle closes
       let u = page.url(); if (!warm) for (let i = 0; i < 25 && !isChatUrl(p, u); i++) { await page.waitForTimeout(400); u = page.url(); }
-      if (isChatUrl(p, u) && store.get(ckey) !== u) store.set(ckey, u);
+      if (isChatUrl(p, u) && store.get(ckey) !== u) store.set(ckey, u); else if (store.touch) store.touch(ckey);
     }
     await shot('3. Reply received');
     ok = true;

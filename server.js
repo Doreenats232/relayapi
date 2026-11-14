@@ -3,7 +3,7 @@ const B = require('./browser'); const ask = B.ask;
 const FILE = path.join(__dirname, 'data.json');
 let db = { users: [], sessions: {}, keys: [], providers: [], logs: [], chats: {}, resets: {} };
 // saved chat per (user:provider:conversation) so chats survive restarts; lives in the same Turso blob as everything else
-B.setStore({ get: k => (db.chats[k] || {}).url || null, set: (k, url) => { db.chats[k] = { url, ts: Date.now() }; save(); }, del: k => { if (db.chats[k]) { delete db.chats[k]; save(); } } });
+B.setStore({ get: k => (db.chats[k] || {}).url || null, set: (k, url) => { db.chats[k] = { url, ts: Date.now(), used: Date.now() }; save(); }, touch: k => { if (db.chats[k]) { db.chats[k].used = Date.now(); save(); } }, del: k => { if (db.chats[k]) { delete db.chats[k]; save(); } } });
 const TURSO_URL = process.env.TURSO_URL || process.env.TURSO_DATABASE_URL, TURSO_TOKEN = process.env.TURSO_TOKEN || process.env.TURSO_AUTH_TOKEN; // same names as the vault project work too
 const TURSO = TURSO_URL && TURSO_TOKEN ? require('@libsql/client').createClient({ url: TURSO_URL, authToken: TURSO_TOKEN }) : null;
 async function loadDb() {
@@ -56,6 +56,7 @@ const BUILD = (process.env.RENDER_GIT_COMMIT || '').slice(0, 7) || 'dev' + Date.
 // the app page is never cached, so a new deploy always reaches the phone on the next open (a stale copy was keeping old bugs alive)
 app.get(['/app', '/app/', '/app/index.html'], (req, res) => { res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }); res.send(fs.readFileSync(path.join(__dirname, 'public/app/index.html'), 'utf8').replace(/__BUILD__/g, BUILD)); });
 app.get('/api/version', (req, res) => { res.set('Cache-Control', 'no-store'); res.json({ build: BUILD }); });
+app.use((req, res, next) => { const b = req.body; if (b && typeof b === 'object') { if (Array.isArray(b.messages)) b.messages = b.messages.filter(m => m && typeof m === 'object'); if (Array.isArray(b.tools)) b.tools = b.tools.filter(t => t && typeof t === 'object'); } next(); }); // bad items like messages:[null] used to crash the server
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ---------- auth ----------
@@ -328,7 +329,7 @@ app.post('/v1/chat/completions', (req, res) => {
   key.lastUsed = Date.now(); key.requests++;
   const bound = key.providerId ? db.providers.find(p => p.id === key.providerId && p.userId === key.userId) : null;
   if (key.providerId && !bound) return res.status(404).json({ error: { message: 'The provider this key belongs to was deleted. Revoke this key and create a new one.' } });
-  run(key.userId, key.id, req.body || {}, res, { provider: bound || undefined, conv: 'key-' + key.id }); // one persistent chat per key; "model" and any conversation id from the client are ignored
+  run(key.userId, key.id, req.body || {}, res, { provider: bound || undefined, conv: 'key-' + key.id }).catch(e => { console.log('run failed:', e.message); if (!res.headersSent) res.status(500).json({ error: { message: 'Internal error' } }); }); // one persistent chat per key; "model" and any conversation id from the client are ignored
 });
 app.get('/v1/models', (req, res) => {
   const key = db.keys.find(k => k.hash === sha((req.headers.authorization || '').replace('Bearer ', '')) && !k.revoked);
@@ -345,7 +346,7 @@ app.post('/api/providers/:id/test', auth, async (req, res) => {
 });
 const roomConv = b => (b && b.room) ? 'room-' + String(b.room).replace(/[^\w]/g, '').slice(0, 40) : 'playground'; // each AI room keeps its own chat per AI, apart from the solo playground chat
 app.post('/api/playground', auth, async (req, res) => {
-  if (!req.body.debug) return run(req.uid, 'playground', req.body || {}, res, { conv: roomConv(req.body) });
+  if (!req.body.debug) return run(req.uid, 'playground', req.body || {}, res, { conv: roomConv(req.body) }).catch(e => { console.log('run failed:', e.message); if (!res.headersSent) res.status(500).json({ error: 'Internal error' }); });
   const p = db.providers.find(p => p.userId === req.uid && p.name === req.body.model);
   if (!p) return res.status(404).json({ error: 'Provider not found' });
   res.json(await ask(prov(p), { full: toPrompt(req.body.messages), last: lastUserOf(req.body.messages) }, true, 'playground'));
@@ -373,7 +374,26 @@ server.on('upgrade', (req, sock, head) => {
   if (u.pathname !== '/live' || !uid || !B.liveOwns(sid, uid)) return sock.destroy();
   wss.handleUpgrade(req, sock, head, ws => B.liveAttach(sid, uid, ws).catch(() => ws.close()));
 });
+// ---------- auto-clean: chats nobody used for CHAT_TTL_DAYS (default 7, 0 = off) are deleted so providers never pile up old chats ----------
+const CHAT_TTL = (process.env.CHAT_TTL_DAYS === undefined ? 7 : +process.env.CHAT_TTL_DAYS) * 864e5, SWEEP_MS = +process.env.SWEEP_MS || 30 * 60e3;
+let sweeping = false;
+async function sweepChats() {
+  if (sweeping || !(CHAT_TTL > 0)) return; sweeping = true;
+  try {
+    const now = Date.now(); let n = 0, changed = false;
+    for (const [ck, c] of Object.entries(db.chats)) {
+      const [uid, pid] = ck.split(':'), p = db.providers.find(x => x.id === pid && x.userId === uid);
+      if (!p) { delete db.chats[ck]; changed = true; continue; } // provider is gone
+      if (!c.used) { c.used = now; changed = true; continue; } // older entries get a fresh clock the first time
+      if (now - c.used < CHAT_TTL || n >= 5) continue; // 5 per pass keeps the small server calm
+      n++; console.log('Auto-clean unused chat', ck, '->', await B.deleteChat(p, ck).catch(e => 'error ' + e.message));
+    }
+    if (changed) save();
+  } catch (e) { console.log('Auto-clean failed:', e.message); } finally { sweeping = false; }
+}
+process.on('unhandledRejection', e => console.log('Unhandled rejection:', e && e.message || e));
 loadDb().then(() => {
+  setTimeout(sweepChats, Math.min(SWEEP_MS, 120000)); setInterval(sweepChats, SWEEP_MS).unref();
   if (!db.secret) { db.secret = crypto.randomBytes(32).toString('hex'); save(); }
   server.listen(process.env.PORT || 10000, () => console.log('RelayAPI up'));
 }).catch(e => { console.error('FATAL: could not load storage —', e.message); process.exit(1); });

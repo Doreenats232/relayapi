@@ -564,16 +564,7 @@ async function chatView(pn){
     $('#vorb').onclick=()=>{if(sv.speaking)Voice.stopSpeak();else if(sv.tap){const t=sv.tap;sv.tap=null;t()}};
     $('#vmute').onclick=()=>{sv.muted=!sv.muted;if(sv.muted)Voice.stopListen();svDraw()};
     $('#vend').onclick=svClose;
-    $('#vwake').onclick=()=>{
-      let on=sv.wake,fl=wakeFollowSec();
-      const w=sheet(`<h2>Wake name</h2><p class="mu">The call keeps listening, but ${esc(cap(pn))} only answers after it hears its name, like \u201cMiles, what is the weather?\u201d. Add spellings your phone might hear, separated by commas.</p><input class="in" id="wn" placeholder="Miles, Myles" value="${esc(localStorage.wakeNames||'')}"><div class="sec" style="margin-top:16px">Only answer to its name</div><div class="chips"><button class="chip" data-w="1">On</button><button class="chip" data-w="0">Off</button></div><div class="sec">After a reply, keep listening without the name</div><div class="chips">${[0,10,20,30].map(s=>`<button class="chip" data-f="${s}">${s?s+' seconds':'Off'}</button>`).join('')}</div><button class="btn" id="wsv" style="margin-top:16px;width:100%">Done</button>`);
-      const paint=()=>{w.querySelectorAll('[data-w]').forEach(b=>b.classList.toggle('on',(b.dataset.w==='1')===on));w.querySelectorAll('[data-f]').forEach(b=>b.classList.toggle('on',+b.dataset.f===fl))};paint();
-      w.querySelectorAll('[data-w]').forEach(b=>b.onclick=()=>{on=b.dataset.w==='1';paint()});
-      w.querySelectorAll('[data-f]').forEach(b=>b.onclick=()=>{fl=+b.dataset.f;paint()});
-      w.querySelector('#wsv').onclick=()=>{const names=w.querySelector('#wn').value.split(',').map(s=>s.trim()).filter(Boolean).join(', ');
-        if(on&&!names){toast('Type the name it should answer to');return}
-        localStorage.wakeNames=names;localStorage.wakeOn=on?'1':'0';localStorage.wakeFollow=String(fl);
-        if(sv){sv.wake=on&&!!names;sv.follow=0;sv.armed=false;Voice.stopListen();svDraw()}w.remove()}};
+    $('#vwake').onclick=()=>wakeSheet(en=>{if(!sv)return;sv.wake=en;sv.follow=0;sv.armed=false;Voice.stopListen();svDraw()},cap(pn));
     svDraw();svLoop()}
   async function svLoop(){
     const me=sv;
@@ -647,6 +638,7 @@ function settingsView(){
    <button class="row" id="memb"><div class="m"><b>Memory &amp; saved prompts</b><small>Notes every AI knows about you, and prompts you reuse</small></div>›</button>
    <button class="row" id="tkb"><div class="m"><b>Scheduled asks</b><small>A notification at a set time that sends your question to an AI</small></div>›</button>
    <button class="row" id="vbgb"><div class="m"><b>Voice keeps running in the background</b><small>Lets a voice meeting continue with the screen off or in another app. Shows a notification while it runs.</small></div>${sw('vbg',localStorage.vbg!=='0')}</button>
+   <button class="row" id="wkb"><div class="m"><b>Wake name</b><small>${localStorage.wakeOn==='1'&&wakeNames().length?'On: the AI answers when you say “'+esc(wakeNames()[0])+'” in a voice call':'Off. Make a voice call answer only when you say its name'}</small></div>›</button>
    <button class="row" id="vcb"><div class="m"><b>Voices</b><small>Phone or human voice, speed, and a voice for each AI</small></div>›</button>
    <button class="row" id="bub"><div class="m"><b>Backup &amp; restore</b><small>Keep your chats, notes and settings safe</small></div>›</button>
    <button class="row" id="rpb"><div class="m"><b>Report a problem</b><small>Shares a short report you can send me</small></div>›</button><div class="mu" style="text-align:center;font-size:12px;margin:14px 0 4px">App version ${esc(BUILD)}</div>
@@ -667,7 +659,7 @@ function settingsView(){
    <button class="row" id="rl"><div class="m"><b>Reload latest version</b><small>The app updates itself from your relay</small></div>›</button>
    <button class="row" id="lo"><div class="m"><b style="color:var(--bad)">Sign out</b></div></button>
   </div></div>`;
-  $('#bk').onclick=()=>location.hash='#/';$('#rr').onclick=()=>location.hash='#/rules';$('#memb').onclick=()=>location.hash='#/memory';$('#usgb').onclick=usageSheet;$('#dschb').onclick=dsChatsSheet;$('#tkb').onclick=()=>location.hash='#/tasks';$('#vcb').onclick=voicesSheet;$('#bub').onclick=backupSheet;$('#rpb').onclick=reportProblem;
+  $('#bk').onclick=()=>location.hash='#/';$('#rr').onclick=()=>location.hash='#/rules';$('#memb').onclick=()=>location.hash='#/memory';$('#usgb').onclick=usageSheet;$('#dschb').onclick=dsChatsSheet;$('#tkb').onclick=()=>location.hash='#/tasks';$('#wkb').onclick=()=>wakeSheet(()=>settingsView());$('#vcb').onclick=voicesSheet;$('#bub').onclick=backupSheet;$('#rpb').onclick=reportProblem;
   const tg=(btn,id,key,def)=>{const b=$(btn);if(!b)return;b.onclick=()=>{const on=localStorage[key]===undefined?def:localStorage[key]!=='0';localStorage[key]=on?'0':'1';$(id).classList.toggle('on',!on)}};
   document.querySelectorAll('#thm .chip').forEach(c=>c.onclick=()=>{localStorage.theme=c.dataset.t;applyTheme();settingsView()});
   document.querySelectorAll('#acc .chip').forEach(c=>c.onclick=()=>{localStorage.accent2=c.dataset.a;applyTheme();settingsView()});
@@ -1111,6 +1103,16 @@ function wakeMatch(text,names){ // {rest} = what was said besides the name, or n
   return null}
 function wakeBeep(ac){try{navigator.vibrate&&navigator.vibrate(25)}catch{}try{if(!ac)return;ac.resume&&ac.resume();const o=ac.createOscillator(),g=ac.createGain();o.type='sine';o.frequency.setValueAtTime(660,ac.currentTime);o.frequency.setValueAtTime(990,ac.currentTime+.07);g.gain.setValueAtTime(.0001,ac.currentTime);g.gain.exponentialRampToValueAtTime(.18,ac.currentTime+.02);g.gain.exponentialRampToValueAtTime(.0001,ac.currentTime+.16);o.connect(g);g.connect(ac.destination);o.start();o.stop(ac.currentTime+.17)}catch{}}
 
+function wakeSheet(done,who){ // the wake-name panel: used inside a voice call and from Settings
+  let on=localStorage.wakeOn==='1'&&wakeNames().length>0,fl=wakeFollowSec();
+  const w=sheet(`<h2>Wake name</h2><p class="mu">In a voice call (the sparkle button in a chat) the AI keeps listening, but ${esc(who||'it')} only answers after it hears its name, like \u201cMiles, what is the weather?\u201d. Add spellings your phone might hear, separated by commas.</p><input class="in" id="wn" placeholder="Miles, Myles" value="${esc(localStorage.wakeNames||'')}"><div class="sec" style="margin-top:16px">Only answer to its name</div><div class="chips"><button class="chip" data-w="1">On</button><button class="chip" data-w="0">Off</button></div><div class="sec">After a reply, keep listening without the name</div><div class="chips">${[0,10,20,30].map(s=>`<button class="chip" data-f="${s}">${s?s+' seconds':'Off'}</button>`).join('')}</div><button class="btn" id="wsv" style="margin-top:16px;width:100%">Done</button>`);
+  const paint=()=>{w.querySelectorAll('[data-w]').forEach(b=>b.classList.toggle('on',(b.dataset.w==='1')===on));w.querySelectorAll('[data-f]').forEach(b=>b.classList.toggle('on',+b.dataset.f===fl))};paint();
+  w.querySelectorAll('[data-w]').forEach(b=>b.onclick=()=>{on=b.dataset.w==='1';paint()});
+  w.querySelectorAll('[data-f]').forEach(b=>b.onclick=()=>{fl=+b.dataset.f;paint()});
+  w.querySelector('#wsv').onclick=()=>{const names=w.querySelector('#wn').value.split(',').map(s=>s.trim()).filter(Boolean).join(', ');
+    if(on&&!names){toast('Type the name it should answer to');return}
+    localStorage.wakeNames=names;localStorage.wakeOn=on?'1':'0';localStorage.wakeFollow=String(fl);
+    w.remove();done&&done(on&&!!names)}}
 /* voice layer: Android speech services inside the app, the browser's own otherwise */
 const SRC=window.SpeechRecognition||window.webkitSpeechRecognition;
 const Voice={n:0,pend:{},L:null,rec:null,

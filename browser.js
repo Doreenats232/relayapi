@@ -8,6 +8,9 @@ const SITE = { 'deepseek.com': { strip: /^(new chat|message deepseek|deepthink( 
 const siteOf = p => { try { const h = new URL(p.url).hostname, k = Object.keys(SITE).sort((a, b) => b.length - a.length).find(k => h === k || h.endsWith('.' + k)); return k ? SITE[k] : {}; } catch { return {}; } };
 const HINTS = { 'chat.deepseek.com': '.ds-markdown', 'gemini.google.com': 'model-response message-content, .model-response-text' }; // known reply containers (used only if present on the page)
 const BOILER = /^(New chat|AI-generated, for reference only|Copy|Regenerate|Share|Like|Dislike|Retry|Read aloud|Edit message)$/i;
+async function clickContinue(page) { // some sites stop a long reply at their length limit and offer a "Continue generating" button
+  try { return await page.evaluate(() => { const bs = [...document.querySelectorAll('button,[role=button]')].filter(x => x.offsetParent !== null && /^(continue generating|continue)$/i.test((x.innerText || '').trim())); const x = bs[bs.length - 1]; if (x) { x.click(); return true; } return false; }); } catch { return false; }
+}
 const tidy = lines => lines.filter(l => !BOILER.test(l.trim())); // only the site's own button labels; never repeated lines (that is code), never indentation
 // ---- reading a reply off a chat page WITHOUT damaging code ----
 // The old way (subtract every line that was on the page before, drop repeated lines, trim, drop blank lines) deleted `}`, `</div>`, CSS lines that
@@ -337,7 +340,7 @@ async function doAsk(p, prompt, dbg, conv, retry = true, info = {}) {
       if (site.after) { let k = -1; lines.forEach((l, i) => { if (site.after.test(l.trim())) k = i; }); if (k >= 0) lines = lines.slice(k + 1); } // keep only what comes after the site's "answer starts here" marker
       return lines.filter(l => !(site.busy && site.busy.test(l.trim())) && !(site.strip && site.strip.test(l.trim()))).join('\n').replace(/^\s*\n/, '').trimEnd();
     };
-    let last = '', lastChange = Date.now(), result = ''; const t1 = Date.now();
+    let last = '', lastChange = Date.now(), result = '', contClicks = 0; const t1 = Date.now();
     const maxMs = (+process.env.REPLY_TIMEOUT_SEC * 1000) || site.waitMs || 120000;
     // long replies (an app's code can take minutes) are never cut off while the text is still growing: the limit only bites once the site has gone quiet
     while (Date.now() - t1 < maxMs || (last && Date.now() - lastChange < 25000 && Date.now() - t1 < 900000)) {
@@ -345,7 +348,14 @@ async function doAsk(p, prompt, dbg, conv, retry = true, info = {}) {
       await page.waitForTimeout(400);
       const cur = await read().catch(() => '');
       if (cur !== last) { last = cur; lastChange = Date.now(); if (info.onText && cur && !busyNow) { try { info.onText(cur); } catch {} } }
-      else if (cur && !busyNow && Date.now() - lastChange >= (((cur.match(/```/g) || []).length % 2 || (/<!doctype html|<html[\s>]/i.test(cur) && !/<\/html>/i.test(cur))) ? Math.max(STABLE_MS, 9000) : STABLE_MS)) { result = cur; break; } // an unclosed code block, or an HTML file with no </html> yet, means the AI is probably still writing: wait longer before calling it finished
+      else if (cur && !busyNow) {
+        const unfinished = /<!doctype html|<html[\s>]/i.test(cur) && !/<\/html>/i.test(cur), openFence = (cur.match(/```/g) || []).length % 2;
+        // an unclosed code block, or an HTML file with no </html> yet, means the AI is probably still writing: wait longer before calling it finished
+        if (Date.now() - lastChange >= ((openFence || unfinished) ? Math.max(STABLE_MS, 9000) : STABLE_MS)) {
+          if (unfinished && contClicks < 4 && await clickContinue(page)) { contClicks++; lastChange = Date.now(); step('Clicked the site\'s Continue button (its reply was cut off)', true, 'attempt ' + contClicks); continue; }
+          result = cur; break;
+        }
+      }
     }
     if (!result && last) result = last;
     if (!result) throw new Error('Timed out waiting for reply (' + (busyNow ? 'the site still showed a busy/thinking state' : 'no new text appeared') + '). Page text at the end: ' + String(raw || '(none read)').replace(/\s+/g, ' ').slice(-600));

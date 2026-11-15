@@ -166,6 +166,16 @@ function auth(req, res, next) {
 }
 
 // ---------- providers ----------
+// ---- DeepSeek account chats (view / delete from the dashboard) ----
+const ownProv = (req, res) => { const p = db.providers.find(x => x.id === req.params.id && x.userId === req.uid); if (!p) res.status(404).json({ error: 'Provider not found' }); else if (!B.isDS(p)) res.status(400).json({ error: 'The chat viewer works for DeepSeek providers only for now' }); else return p; };
+const chatErr = (p, res, e) => { console.log('chat viewer:', e.message); if (/session expired/i.test(e.message)) { p.health = { ok: false, at: Date.now(), err: e.message.slice(0, 160) }; save(); } res.status(502).json({ error: e.message }); };
+const relayChatIds = p => new Set(Object.entries(db.chats).filter(([k]) => k.startsWith(p.userId + ':' + p.id + ':')).map(([, c]) => String(c.url || '').split('/').pop()));
+app.get('/api/providers/:id/chats', auth, async (req, res) => { const p = ownProv(req, res); if (!p) return; try { const r = await B.dsList(p, req.query.cursor || ''), mine = relayChatIds(p); res.json({ ...r, chats: r.chats.map(c => ({ ...c, relay: mine.has(c.id) })) }); } catch (e) { chatErr(p, res, e); } });
+app.get('/api/providers/:id/chats/:cid', auth, async (req, res) => { const p = ownProv(req, res); if (!p) return; try { res.json(await B.dsMessages(p, req.params.cid)); } catch (e) { chatErr(p, res, e); } });
+app.post('/api/providers/:id/chats/delete', auth, async (req, res) => { // body: { ids: [...] } (max 50, one by one so DeepSeek is never hit in parallel)
+  const p = ownProv(req, res); if (!p) return; const ids = (Array.isArray(req.body.ids) ? req.body.ids : []).filter(x => typeof x === 'string' && x).slice(0, 50), done = [], failed = [];
+  for (const cid of ids) { try { await B.dsDelete(p, cid); done.push(cid); for (const [ck, c] of Object.entries(db.chats)) if (ck.startsWith(p.userId + ':' + p.id + ':') && String(c.url || '').split('/').pop() === cid) { await B.forget(ck); delete sysSent[ck]; } } catch (e) { failed.push({ id: cid, error: e.message }); if (/session expired/i.test(e.message)) { chatErr(p, { status: () => ({ json: () => {} }) }, e); break; } } }
+  res.json({ deleted: done, failed }); });
 app.get('/api/providers', auth, (req, res) => res.json(db.providers.filter(p => p.userId === req.uid).map(({ cookies, ...p }) => ({ ...p, hasSession: !!cookies, sessionExpired: !!(p.health && p.health.ok === false) }))));
 // human-sounding voices (see tts.js)
 const tts = require('./tts');

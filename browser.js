@@ -68,6 +68,52 @@ async function doDelete(p, ckey) {
   await forget(ckey); // the key is gone either way, so drop the saved chat and its open page
   return result;
 }
+// ---- DeepSeek account chats: list / read / delete them from inside the relay (so the account never has to be opened on a PC, which kills the session) ----
+const isDS = p => { try { return /(^|\.)deepseek\.com$/.test(new URL(p.url).hostname); } catch { return false; } };
+const dsFetch = async ({ method, url, body }) => {
+  let tok = ''; for (const k of Object.keys(localStorage)) if (/user.?token/i.test(k)) { try { const v = JSON.parse(localStorage[k]); tok = typeof v === 'string' ? v : (v && v.value) || ''; } catch { tok = localStorage[k]; } if (tok) break; }
+  const res = await fetch(url, { method, credentials: 'include', headers: { 'content-type': 'application/json', 'x-client-platform': 'web', 'x-client-version': '2.5.0', 'x-app-version': '20241129.1', 'x-client-locale': 'en_US', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: body ? JSON.stringify(body) : undefined });
+  return { status: res.status, body: (await res.text()).slice(0, 600000) };
+};
+async function dsCall(p, method, url, body) {
+  if (!isDS(p)) throw new Error('The chat viewer only works for DeepSeek providers for now');
+  const prev = queues.get(p.id) || Promise.resolve();
+  const run = prev.catch(() => {}).then(async () => {
+    let page = null, own = false;
+    for (const c of convs.values()) if (c.pid === p.id && !c.page.isClosed()) { page = c.page; break; } // reuse a page that is already open (much faster)
+    if (!page) { makeRoom(); page = await openPage(p, await getCtx(p, () => {})); own = true; }
+    try {
+      if (LOGINISH.test(pathOf(page.url()))) throw new Error('Session expired - log in again (use Log in on the provider)');
+      const r = await page.evaluate(dsFetch, { method, url, body });
+      let j = null; try { j = JSON.parse(r.body); } catch {}
+      if (r.status === 401 || r.status === 403 || (j && (j.code === 40002 || j.code === 40003))) throw new Error('Session expired - log in again (use Log in on the provider)');
+      return { status: r.status, json: j, raw: r.body };
+    } finally { if (own) await page.close().catch(() => {}); }
+  });
+  queues.set(p.id, run); return run;
+}
+const dsBiz = (r, what) => { const b = r.json && r.json.data && r.json.data.biz_data; if (r.status !== 200 || !b) throw new Error('DeepSeek gave an unexpected answer for ' + what + ' (' + r.status + '): ' + String(r.raw).replace(/\s+/g, ' ').slice(0, 200)); return b; };
+async function dsList(p, cursor) {
+  const b = dsBiz(await dsCall(p, 'GET', '/api/v0/chat_session/fetch_page?lte_cursor.pinned=false' + (cursor ? '&lte_cursor.updated_at=' + encodeURIComponent(cursor) : '')), 'the chat list');
+  const chats = (b.chat_sessions || []).map(c => ({ id: c.id, title: c.title || '(untitled)', updated: Math.round((+c.updated_at || 0) * 1000), pinned: !!c.pinned }));
+  const last = (b.chat_sessions || []).slice(-1)[0];
+  return { chats, more: !!b.has_more && !!last, cursor: last ? last.updated_at : null };
+}
+async function dsMessages(p, id) {
+  const b = dsBiz(await dsCall(p, 'GET', '/api/v0/chat/history_messages?chat_session_id=' + encodeURIComponent(id)), 'this chat');
+  const out = (b.chat_messages || []).map(m => {
+    const fr = Array.isArray(m.fragments) ? m.fragments : [], role = /assistant/i.test(m.role) ? 'assistant' : 'user';
+    const text = fr.length ? fr.filter(f => !/think/i.test(f.type)).map(f => f.content || '').join('') : (m.content || '');
+    const think = fr.length ? fr.filter(f => /think/i.test(f.type)).map(f => f.content || '').join('') : (m.thinking_content || '');
+    return { role, text, think, at: m.inserted_at ? Math.round(+m.inserted_at * 1000) : 0 };
+  }).filter(m => m.text || m.think);
+  return { title: (b.chat_session && b.chat_session.title) || '', messages: out };
+}
+async function dsDelete(p, id) {
+  const r = await dsCall(p, 'POST', '/api/v0/chat_session/delete', { chat_session_id: id });
+  if (r.status === 200 && r.json && r.json.code === 0) return true;
+  throw new Error('DeepSeek did not confirm the delete (' + r.status + '): ' + String(r.raw).replace(/\s+/g, ' ').slice(0, 160));
+}
 async function forget(ckey) { const c = convs.get(ckey); convs.delete(ckey); store.del(ckey); if (c) await c.page.close().catch(() => {}); }
 const sigOf = p => crypto.createHash('sha1').update((p.cookies || '') + '|' + (p.ua || '') + '|' + p.url).digest('hex');
 
@@ -361,5 +407,5 @@ async function handle(page, d) {
 }
 async function liveSave(sid, owner) { const s = liveGet(sid, owner), url = s.page.url(), st = await s.ctx.storageState({ indexedDB: true }); Object.defineProperty(st, 'url', { value: url, enumerable: false }); await liveClose(sid); return st; } // st.url = where the live page was when saved (not stored)
 async function liveClose(sid) { const s = live.get(sid); if (!s) return; clearTimeout(s.timer); live.delete(sid); await s.ctx.close().catch(() => {}); }
-module.exports = { sessionInfo, ask, forget, deleteChat, hasChat: k => !!(store.get(k) || convs.has(k)), setStore: s => { store = s; }, liveStart, liveAttach, liveSave, liveClose, liveOwns: (sid, o) => live.get(sid)?.owner === o };
+module.exports = { dsList, dsMessages, dsDelete, isDS, sessionInfo, ask, forget, deleteChat, hasChat: k => !!(store.get(k) || convs.has(k)), setStore: s => { store = s; }, liveStart, liveAttach, liveSave, liveClose, liveOwns: (sid, o) => live.get(sid)?.owner === o };
 

@@ -610,6 +610,7 @@ function settingsView(){
    <button class="row" id="vcb"><div class="m"><b>Voices</b><small>Phone or human voice, speed, and a voice for each AI</small></div>›</button>
    <button class="row" id="bub"><div class="m"><b>Backup &amp; restore</b><small>Keep your chats, notes and settings safe</small></div>›</button>
    <button class="row" id="rpb"><div class="m"><b>Report a problem</b><small>Shares a short report you can send me</small></div>›</button><div class="mu" style="text-align:center;font-size:12px;margin:14px 0 4px">App version ${esc(BUILD)}</div>
+   <button class="row" id="dschb"><div class="m"><b>DeepSeek chats</b><small>See and delete the chats on your DeepSeek account</small></div>›</button>
    <button class="row" id="usgb"><div class="m"><b>Usage</b><small>Replies, errors and sign-in problems per AI</small></div>›</button>
    ${A?`<button class="row" id="pcb"><div class="m"><b>Let the AI control my phone</b><small>Open apps, set alarms, call, text, search</small></div>${sw('pc',phoneOn())}</button>
    <button class="row" id="pab"><div class="m"><b>Ask before it acts</b><small>Show a Run button for each action</small></div>${sw('pa',askFirst())}</button>
@@ -626,7 +627,7 @@ function settingsView(){
    <button class="row" id="rl"><div class="m"><b>Reload latest version</b><small>The app updates itself from your relay</small></div>›</button>
    <button class="row" id="lo"><div class="m"><b style="color:var(--bad)">Sign out</b></div></button>
   </div></div>`;
-  $('#bk').onclick=()=>location.hash='#/';$('#rr').onclick=()=>location.hash='#/rules';$('#memb').onclick=()=>location.hash='#/memory';$('#usgb').onclick=usageSheet;$('#tkb').onclick=()=>location.hash='#/tasks';$('#vcb').onclick=voicesSheet;$('#bub').onclick=backupSheet;$('#rpb').onclick=reportProblem;
+  $('#bk').onclick=()=>location.hash='#/';$('#rr').onclick=()=>location.hash='#/rules';$('#memb').onclick=()=>location.hash='#/memory';$('#usgb').onclick=usageSheet;$('#dschb').onclick=dsChatsSheet;$('#tkb').onclick=()=>location.hash='#/tasks';$('#vcb').onclick=voicesSheet;$('#bub').onclick=backupSheet;$('#rpb').onclick=reportProblem;
   const tg=(btn,id,key,def)=>{const b=$(btn);if(!b)return;b.onclick=()=>{const on=localStorage[key]===undefined?def:localStorage[key]!=='0';localStorage[key]=on?'0':'1';$(id).classList.toggle('on',!on)}};
   document.querySelectorAll('#thm .chip').forEach(c=>c.onclick=()=>{localStorage.theme=c.dataset.t;applyTheme();settingsView()});
   document.querySelectorAll('#acc .chip').forEach(c=>c.onclick=()=>{localStorage.accent2=c.dataset.a;applyTheme();settingsView()});
@@ -667,6 +668,36 @@ function memoryText(){const m=memNotes();return m.length?'Shared notes about the
 function useStat(n,ok,err){const u=jget('use',{}),x=u[n]||{ok:0,err:0};if(ok)x.ok++;else{x.err++;x.lastErr=String(err||'').slice(0,160)}x.last=Date.now();u[n]=x;localStorage.use=JSON.stringify(u)}
 function copyText(t){try{if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(()=>toast('Copied'),()=>fb())}else fb()}catch{fb()}
   function fb(){const e=document.createElement('textarea');e.value=t;e.style.position='fixed';e.style.opacity='0';document.body.appendChild(e);e.select();try{document.execCommand('copy');toast('Copied')}catch{toast('Could not copy')}e.remove()}}
+function dsChatsSheet(){const ds=providers.filter(p=>/(^|\.)deepseek\.com$/.test((()=>{try{return new URL(p.url).hostname}catch{return''}})()));
+  if(!ds.length)return toast('Add a DeepSeek AI first');
+  if(ds.length===1)return dsSheet(ds[0]);
+  const v=sheet(`<h2>Which DeepSeek?</h2>`+ds.map((p,i)=>`<button class="row plain" data-i="${i}">${logo(p.name,30)}<div class="m"><b>${esc(cap(p.name))}</b></div></button>`).join(''));
+  v.querySelectorAll('[data-i]').forEach(b=>b.onclick=()=>{v.remove();dsSheet(ds[+b.dataset.i])})}
+function dsSheet(p){const S={chats:[],cursor:'',more:false,sel:new Set(),err:'',busy:true},v=sheet('<div id="dsw"></div>'),w=v.querySelector('#dsw'),base='/api/providers/'+p.id+'/chats';
+  const ago=t=>{if(!t)return'';const m=Math.round((Date.now()-t)/60000);return m<1?'just now':m<60?m+' min ago':m<1440?Math.round(m/60)+' h ago':Math.round(m/1440)+' d ago'};
+  const bad=e=>`<p style="color:#f87171;font-size:13px;word-break:break-word">${esc(e)}</p>`;
+  async function load(reset){if(reset){S.chats=[];S.cursor='';S.sel=new Set()}S.busy=true;S.err='';list();
+    try{const r=await api(base+(S.cursor?'?cursor='+encodeURIComponent(S.cursor):''));S.chats=S.chats.concat(r.chats);S.more=r.more;S.cursor=r.cursor}catch(e){S.err=e.message}S.busy=false;list()}
+  function list(){const c=S.chats;
+    w.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between"><h2 style="margin:0">DeepSeek chats</h2><button class="chip" id="dr">Refresh</button></div>
+    ${S.err?bad(S.err):''}${S.busy&&!c.length?'<p class="mu">Loading your chats… the first load can take about 20 seconds.</p>':''}
+    ${S.sel.size?`<button class="btn" id="dd" style="margin:10px 0;background:#b91c1c">Delete ${S.sel.size} selected</button>`:''}
+    ${c.map(x=>`<div class="row plain" style="gap:10px;align-items:center"><input type="checkbox" data-t="${esc(x.id)}" ${S.sel.has(x.id)?'checked':''} style="width:20px;height:20px;flex:none"><div class="m" data-o="${esc(x.id)}" style="min-width:0"><b style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block">${esc(x.title)}</b><small>${ago(x.updated)}${x.relay?' · made by Relay':''}</small></div></div>`).join('')}
+    ${S.more?`<button class="btn alt" id="dl" style="margin-top:10px">${S.busy?'Loading…':'Load more'}</button>`:''}
+    ${!c.length&&!S.busy&&!S.err?'<p class="mu">No chats on this account.</p>':''}`;
+    w.querySelector('#dr').onclick=()=>load(true);
+    const dl=w.querySelector('#dl');if(dl)dl.onclick=()=>load(false);
+    const dd=w.querySelector('#dd');if(dd)dd.onclick=()=>del([...S.sel]);
+    w.querySelectorAll('[data-t]').forEach(b=>b.onchange=()=>{b.checked?S.sel.add(b.dataset.t):S.sel.delete(b.dataset.t);list()});
+    w.querySelectorAll('[data-o]').forEach(b=>b.onclick=()=>open(b.dataset.o))}
+  async function open(id){w.innerHTML=`<button class="chip" id="bk2">‹ Back</button><p class="mu">Opening the chat…</p>`;w.querySelector('#bk2').onclick=list;
+    try{const r=await api(base+'/'+encodeURIComponent(id));
+      w.innerHTML=`<div style="display:flex;align-items:center;gap:8px"><button class="chip" id="bk2">‹ Back</button><b style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.title||'Chat')}</b><button class="chip" id="dx" style="color:#f87171">Delete</button></div><p class="mu" style="font-size:12px">Read only. Nothing is sent to DeepSeek from here.</p>`+(r.messages.length?r.messages.map(m=>`<div style="display:flex;flex-direction:column;align-items:${m.role==='user'?'flex-end':'flex-start'};margin-bottom:10px"><div style="max-width:88%;padding:9px 12px;border-radius:14px;font-size:14px;white-space:pre-wrap;word-break:break-word;background:${m.role==='user'?'#3b82f633':'var(--s1)'}">${esc(m.text)||'(no text)'}</div>${m.think?`<details style="max-width:88%;margin-top:4px"><summary class="mu" style="font-size:12px">Show thinking</summary><div class="mu" style="font-size:12px;white-space:pre-wrap">${esc(m.think)}</div></details>`:''}</div>`).join(''):'<p class="mu">No messages in this chat.</p>');
+      w.querySelector('#bk2').onclick=list;w.querySelector('#dx').onclick=()=>del([id])}
+    catch(e){w.innerHTML=`<button class="chip" id="bk2">‹ Back</button>`+bad(e.message);w.querySelector('#bk2').onclick=list}}
+  async function del(ids){if(!confirm('Delete '+ids.length+' chat'+(ids.length>1?'s':'')+' from your DeepSeek account? This cannot be undone.'))return;
+    try{const r=await api(base+'/delete','POST',{ids});S.chats=S.chats.filter(c=>!r.deleted.includes(c.id));r.deleted.forEach(i=>S.sel.delete(i));toast(r.deleted.length+' deleted'+(r.failed.length?', '+r.failed.length+' failed':''));S.err=r.failed.length?r.failed[0].error:''}catch(e){S.err=e.message}list()}
+  load(true)}
 function usageSheet(){const u=jget('use',{}),names=Object.keys(u);
   const ago=t=>{const m=Math.round((Date.now()-t)/60000);return m<1?'just now':m<60?m+' min ago':m<1440?Math.round(m/60)+' h ago':Math.round(m/1440)+' d ago'};
   const rows=names.length?names.map(n=>{const x=u[n];return `<div class="row plain">${logo(n,30)}<div class="m"><b>${esc(cap(n))}</b><small>${x.ok} replies · ${x.err} errors · last used ${ago(x.last)}${x.lastErr?'<br>Last error: '+esc(x.lastErr)+(authLike(x.lastErr)?' (sign in again)':''):''}</small></div></div>`}).join(''):'<p class="mu">No messages yet.</p>';

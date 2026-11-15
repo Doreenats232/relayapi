@@ -536,8 +536,8 @@ async function chatView(pn){
   function svDraw(){const d=$('#vo');if(!d||!sv)return;
     const st=sv.speaking?'speaking':busy?'thinking':sv.muted?'muted':sv.idle?'idle':sv.armed?'listening':(sv.wake&&Date.now()>=(sv.follow||0))?'wait':sv.listening?'listening':'idle';
     d.className='vo st-'+st;
-    const names={speaking:cap(pn)+' is speaking. Tap to interrupt.',thinking:cap(pn)+' is thinking…',muted:'Muted',idle:'Tap the orb and speak',listening:'Listening…',wait:'Say “'+(wakeNames()[0]||cap(pn))+'” to talk'};
-    $('#vst').textContent=names[st];$('#vcap').textContent=sv.caption||'';const wk=$('#vwake');if(wk)wk.textContent=sv.wake?'Name: '+wakeNames().join(' / '):'Wake name: off';
+    const names={speaking:cap(pn)+' is speaking. Tap to interrupt.',thinking:cap(pn)+' is thinking…',muted:'Muted',idle:'Tap the orb and speak',listening:'Listening…',wait:'Say “'+(soloWake(pn)[0]||cap(pn))+'” to talk'};
+    $('#vst').textContent=names[st];$('#vcap').textContent=sv.caption||'';const wk=$('#vwake');if(wk)wk.textContent=sv.wake?'Name: '+soloWake(pn).join(' / '):'Wake name: off';
     d.querySelectorAll('.vp').forEach(p=>p.classList.toggle('on',st==='speaking'||st==='thinking'));
     $('#vmute').innerHTML=sv.muted?ICON.micoff:ICON.mic;$('#vmute').classList.toggle('off',sv.muted)}
   function svClose(){
@@ -550,7 +550,7 @@ async function chatView(pn){
     if(busy){toast('Wait for the reply to finish first');return}
     if(sv&&sv.on)return;
     try{A&&A.keepOn&&A.keepOn(true);if(A&&A.voiceBg&&localStorage.vbg!=='0')A.voiceBg(true)}catch{}
-    sv={on:true,muted:false,listening:false,idle:false,speaking:false,caption:'',miss:0,err:0,tap:null,say:'',wake:localStorage.wakeOn==='1'&&wakeNames().length>0,armed:false,follow:0,ac:null};
+    sv={on:true,muted:false,listening:false,idle:false,speaking:false,caption:'',miss:0,err:0,tap:null,say:'',wake:localStorage.wakeOn==='1'&&soloWake(pn).length>0,armed:false,follow:0,ac:null};
     try{sv.ac=new (window.AudioContext||window.webkitAudioContext)()}catch{}
     const d=document.createElement('div');d.id='vo';d.className='vo';
     d.innerHTML=`<div class="vtop"><b>${esc(cap(pn))}</b></div><div class="vst" id="vst"></div>
@@ -564,7 +564,7 @@ async function chatView(pn){
     $('#vorb').onclick=()=>{if(sv.speaking)Voice.stopSpeak();else if(sv.tap){const t=sv.tap;sv.tap=null;t()}};
     $('#vmute').onclick=()=>{sv.muted=!sv.muted;if(sv.muted)Voice.stopListen();svDraw()};
     $('#vend').onclick=svClose;
-    $('#vwake').onclick=()=>wakeSheet(en=>{if(!sv)return;sv.wake=en;sv.follow=0;sv.armed=false;Voice.stopListen();svDraw()},cap(pn));
+    $('#vwake').onclick=()=>wakeSheet(en=>{if(!sv)return;sv.wake=en&&soloWake(pn).length>0;sv.follow=0;sv.armed=false;Voice.stopListen();svDraw()},cap(pn),pn);
     svDraw();svLoop()}
   async function svLoop(){
     const me=sv;
@@ -572,7 +572,7 @@ async function chatView(pn){
       if(me.muted||busy){me.listening=false;svDraw();await sleep(250);continue}
       me.listening=true;me.caption='';svDraw();
       let text='';
-      try{text=await Voice.listen(p=>{if(!me.wake||me.armed||Date.now()<me.follow||wakeMatch(p,wakeNames())){me.caption='You: '+p;svDraw()}})}
+      try{text=await Voice.listen(p=>{if(!me.wake||me.armed||Date.now()<me.follow||wakeMatch(p,soloWake(pn))){me.caption='You: '+p;svDraw()}})}
       catch(e){me.listening=false;if(!me.on)break;const c=String(e);
         if(c==='stop'||c==='aborted')continue;
         if(c==='perm'||c==='9'){toast('Allow the microphone to talk');svClose();return}
@@ -580,7 +580,7 @@ async function chatView(pn){
         await sleep(800);if(++me.err>=4){toast('Voice input stopped. Check your internet and the Google app.');svClose();return}continue}
       me.listening=false;me.miss=0;me.err=0;
       if(me.wake&&text.trim()){ // only act when its name was said (or we are inside the follow-up window after a reply)
-        const m=wakeMatch(text,wakeNames());let cmd;
+        const m=wakeMatch(text,soloWake(pn));let cmd;
         if(Date.now()<me.follow)cmd=(m?m.rest:text).trim();
         else if(m)cmd=m.rest.trim();
         else{me.caption='';svDraw();continue}
@@ -638,7 +638,7 @@ function settingsView(){
    <button class="row" id="memb"><div class="m"><b>Memory &amp; saved prompts</b><small>Notes every AI knows about you, and prompts you reuse</small></div>›</button>
    <button class="row" id="tkb"><div class="m"><b>Scheduled asks</b><small>A notification at a set time that sends your question to an AI</small></div>›</button>
    <button class="row" id="vbgb"><div class="m"><b>Voice keeps running in the background</b><small>Lets a voice meeting continue with the screen off or in another app. Shows a notification while it runs.</small></div>${sw('vbg',localStorage.vbg!=='0')}</button>
-   <button class="row" id="wkb"><div class="m"><b>Wake name</b><small>${localStorage.wakeOn==='1'&&wakeNames().length?'On: the AI answers when you say “'+esc(wakeNames()[0])+'” in a voice call':'Off. Make a voice call answer only when you say its name'}</small></div>›</button>
+   <button class="row" id="wkb"><div class="m"><b>Wake names</b><small>${(()=>{const ns=providers.map(p=>wnGet(p.name)[0]).filter(Boolean);if(localStorage.wakeOn==='1'&&(ns.length||wakeNames().length))return 'On: '+esc((ns.length?ns:[wakeNames()[0]]).join(', '));return 'Off. Give each AI a name and a voice call answers only to it'})()}</small></div>›</button>
    <button class="row" id="vcb"><div class="m"><b>Voices</b><small>Phone or human voice, speed, and a voice for each AI</small></div>›</button>
    <button class="row" id="bub"><div class="m"><b>Backup &amp; restore</b><small>Keep your chats, notes and settings safe</small></div>›</button>
    <button class="row" id="rpb"><div class="m"><b>Report a problem</b><small>Shares a short report you can send me</small></div>›</button><div class="mu" style="text-align:center;font-size:12px;margin:14px 0 4px">App version ${esc(BUILD)}</div>
@@ -1101,18 +1101,43 @@ function wakeMatch(text,names){ // {rest} = what was said besides the name, or n
     if(i+nw<=nt.length&&wakeLev(nt.slice(i,i+nw).join(' '),n)<=tol)return{rest:clean(toks.slice(i+nw).join(' '))}; // at the start (after "hey"): a close spelling is fine
     for(let j=0;j+nw<=nt.length;j++)if(nt.slice(j,j+nw).join(' ')===n)return{rest:clean(toks.filter((_,k)=>k<j||k>=j+nw).join(' '))}} // anywhere else: only the exact name
   return null}
+const wnGet=pv=>(localStorage['wn:'+pv]||'').split(',').map(s=>s.trim()).filter(Boolean); // each AI can have its own spoken name(s)
+const soloWake=pv=>{const a=wnGet(pv);return a.length?a:wakeNames()}; // one-to-one call: this AI's own name, else the old shared name
+function wakeFind(toks,nt,names){ // [start,end) of the first place one of these names is said, or null
+  for(const raw of names){const n=wakeNorm(raw);if(!n)continue;const nw=n.split(' ').length,len=n.replace(/ /g,'').length,tol=len>=7?2:len>=4?1:0;
+    let i=0;while(i<2&&i<nt.length&&WAKE_FILL.has(nt[i]))i++;
+    if(i+nw<=nt.length&&wakeLev(nt.slice(i,i+nw).join(' '),n)<=tol)return[i,i+nw];
+    for(let j=0;j+nw<=nt.length;j++)if(nt.slice(j,j+nw).join(' ')===n)return[j,j+nw]}
+  return null}
+const WAKE_ALL=new Set(['everyone','everybody','team','guys']);
+function roomWake(members,text){ // which AIs were called by name -> {who:[providers] or 'all', rest}; null when nobody was called
+  const toks=String(text||'').trim().split(/\s+/).filter(Boolean),nt=toks.map(wakeNorm),hits=[];
+  for(const m of members){const r=wakeFind(toks,nt,wnGet(m));if(r)hits.push({m,r})}
+  const all=nt.findIndex(t=>WAKE_ALL.has(t));
+  if(!hits.length&&all<0)return null;
+  const drop=new Set();hits.forEach(x=>{for(let k=x.r[0];k<x.r[1];k++)drop.add(k)});if(!hits.length)drop.add(all);
+  hits.sort((a,b)=>a.r[0]-b.r[0]);
+  const rest=toks.filter((_,k)=>!drop.has(k)).join(' ').replace(/^(?:(?:hey|hi|ok|okay|yo|hello|oh|and|&)[\s,]+)+/i,'').replace(/^[,.:;!?\s-]+/,'').replace(/[,\s]+$/,'');
+  return{who:hits.length?hits.map(x=>x.m):'all',rest}}
 function wakeBeep(ac){try{navigator.vibrate&&navigator.vibrate(25)}catch{}try{if(!ac)return;ac.resume&&ac.resume();const o=ac.createOscillator(),g=ac.createGain();o.type='sine';o.frequency.setValueAtTime(660,ac.currentTime);o.frequency.setValueAtTime(990,ac.currentTime+.07);g.gain.setValueAtTime(.0001,ac.currentTime);g.gain.exponentialRampToValueAtTime(.18,ac.currentTime+.02);g.gain.exponentialRampToValueAtTime(.0001,ac.currentTime+.16);o.connect(g);g.connect(ac.destination);o.start();o.stop(ac.currentTime+.17)}catch{}}
 
-function wakeSheet(done,who){ // the wake-name panel: used inside a voice call and from Settings
-  let on=localStorage.wakeOn==='1'&&wakeNames().length>0,fl=wakeFollowSec();
-  const w=sheet(`<h2>Wake name</h2><p class="mu">In a voice call (the sparkle button in a chat) the AI keeps listening, but ${esc(who||'it')} only answers after it hears its name, like \u201cMiles, what is the weather?\u201d. Add spellings your phone might hear, separated by commas.</p><input class="in" id="wn" placeholder="Miles, Myles" value="${esc(localStorage.wakeNames||'')}"><div class="sec" style="margin-top:16px">Only answer to its name</div><div class="chips"><button class="chip" data-w="1">On</button><button class="chip" data-w="0">Off</button></div><div class="sec">After a reply, keep listening without the name</div><div class="chips">${[0,10,20,30].map(s=>`<button class="chip" data-f="${s}">${s?s+' seconds':'Off'}</button>`).join('')}</div><button class="btn" id="wsv" style="margin-top:16px;width:100%">Done</button>`);
+async function wakeSheet(done,who,prov,members){ // the names panel: a voice call (one AI), a room call (its AIs) or Settings (all AIs)
+  if(!prov&&!members&&!providers.length)try{providers=await api('/api/providers')}catch{}
+  const list=prov?[prov]:(members||providers.map(p=>p.name));
+  let on=localStorage.wakeOn==='1'&&list.some(n=>soloWake(n).length>0&&(prov||wnGet(n).length>0)),fl=wakeFollowSec();
+  const intro=prov?`In a voice call (the sparkle button in a chat) the AI keeps listening, but ${esc(who||'it')} only answers after it hears its name, like \u201cMiles, what is the weather?\u201d. Add spellings your phone might hear, separated by commas.`:`Give each AI its own name. In a voice call, whoever you call by name answers: \u201cMiles, what do you think?\u201d. Call two names to hear two AIs, or say \u201ceveryone\u201d for all of them. Add spellings your phone might hear, separated by commas.`;
+  const w=sheet(`<h2>Wake names</h2><p class="mu">${intro}</p>${list.map(n=>`<label class="fld"><span>${esc(cap(n))}</span><input class="in" data-pn="${esc(n)}" placeholder="Miles, Myles" value="${esc((prov?soloWake(n):wnGet(n)).join(', '))}"></label>`).join('')}<div class="sec" style="margin-top:16px">Only answer to a name</div><div class="chips"><button class="chip" data-w="1">On</button><button class="chip" data-w="0">Off</button></div><div class="sec">After a reply, keep listening without the name</div><div class="chips">${[0,10,20,30].map(s=>`<button class="chip" data-f="${s}">${s?s+' seconds':'Off'}</button>`).join('')}</div><button class="btn" id="wsv" style="margin-top:16px;width:100%">Done</button>`);
   const paint=()=>{w.querySelectorAll('[data-w]').forEach(b=>b.classList.toggle('on',(b.dataset.w==='1')===on));w.querySelectorAll('[data-f]').forEach(b=>b.classList.toggle('on',+b.dataset.f===fl))};paint();
   w.querySelectorAll('[data-w]').forEach(b=>b.onclick=()=>{on=b.dataset.w==='1';paint()});
   w.querySelectorAll('[data-f]').forEach(b=>b.onclick=()=>{fl=+b.dataset.f;paint()});
-  w.querySelector('#wsv').onclick=()=>{const names=w.querySelector('#wn').value.split(',').map(s=>s.trim()).filter(Boolean).join(', ');
-    if(on&&!names){toast('Type the name it should answer to');return}
-    localStorage.wakeNames=names;localStorage.wakeOn=on?'1':'0';localStorage.wakeFollow=String(fl);
-    w.remove();done&&done(on&&!!names)}}
+  w.querySelector('#wsv').onclick=()=>{
+    const vals={};w.querySelectorAll('[data-pn]').forEach(i=>vals[i.dataset.pn]=i.value.split(',').map(s=>s.trim()).filter(Boolean));
+    const seen={};for(const n of Object.keys(vals))for(const x of vals[n]){const k=wakeNorm(x);if(k&&seen[k]&&seen[k]!==n){toast('\u201c'+x+'\u201d is used by two AIs. Give each its own name.');return}seen[k]=n}
+    const any=Object.values(vals).some(a=>a.length);
+    if(on&&!any){toast('Type at least one name');return}
+    for(const n of Object.keys(vals))localStorage['wn:'+n]=vals[n].join(', ');
+    localStorage.wakeOn=on?'1':'0';localStorage.wakeFollow=String(fl);
+    w.remove();done&&done(on&&any)}}
 /* voice layer: Android speech services inside the app, the browser's own otherwise */
 const SRC=window.SpeechRecognition||window.webkitSpeechRecognition;
 const Voice={n:0,pend:{},L:null,rec:null,
@@ -1419,11 +1444,13 @@ function startVoice(R){
   if(R.vm&&R.vm.on)return;
   const room=getRoom(R.id);
   try{A&&A.keepOn&&A.keepOn(true);if(A&&A.voiceBg&&localStorage.vbg!=='0')A.voiceBg(true)}catch{}
-  R.vm={on:true,muted:false,listening:false,idle:false,caption:'',miss:0,err:0,tap:null};
+  R.vm={on:true,muted:false,listening:false,idle:false,caption:'',miss:0,err:0,tap:null,wake:localStorage.wakeOn==='1'&&room.members.some(n=>wnGet(n).length>0),armed:false,follow:0,last:null,ac:null};
+  try{R.vm.ac=new (window.AudioContext||window.webkitAudioContext)()}catch{}
   const d=document.createElement('div');d.id='vo';d.className='vo';
   d.innerHTML=`<div class="vtop"><b>${esc(room.name)}</b></div><div class="vst" id="vst"></div>
   <button class="vorb" id="vorb" aria-label="Tap to interrupt or talk"><span class="vglow"></span><span class="vcore">${ICON.spark}</span></button>
   <div class="vcap" id="vcap"></div>
+  <button class="chip vwk" id="vwake"></button>
   <div class="vpeople">${room.members.map(n=>`<div class="vp" data-n="${esc(n)}"><div class="av" style="color:${colorOf(room,n)}">${logo(n,34,colorOf(room,n))}</div><small>${esc(cap(n))}</small></div>`).join('')}</div><div id="vask"></div>
   <div class="vbtns"><button class="ib big" id="vmute" aria-label="Mute">${ICON.mic}</button><button class="btn sm alt" id="vdisc">Let them talk</button><button class="ib big end" id="vend" aria-label="End">${ICON.x}</button></div>`;
   document.body.appendChild(d);
@@ -1432,6 +1459,7 @@ function startVoice(R){
   $('#vmute').onclick=()=>{R.vm.muted=!R.vm.muted;if(R.vm.muted)Voice.stopListen();vmDraw(R)};
   $('#vdisc').onclick=()=>{if(!room.msgs.length){toast('Say something first');return}Voice.stopListen();discuss(R,{speak:true})};
   $('#vend').onclick=()=>vmClose(R);
+  $('#vwake').onclick=()=>wakeSheet(en=>{if(!R.vm)return;R.vm.wake=en;R.vm.follow=0;R.vm.armed=false;Voice.stopListen();vmDraw(R)},'',null,room.members);
   vmDraw(R);voiceLoop(R);
 }
 function vmClose(R){
@@ -1442,11 +1470,12 @@ function vmClose(R){
 }
 function vmDraw(R){
   const d=$('#vo');if(!d||!R.vm)return;
-  const vm=R.vm,st=R.speaking?'speaking':(R.typing||R.active>0)?'thinking':vm.muted?'muted':vm.idle?'idle':vm.listening?'listening':'idle';
+  const vm=R.vm,st=R.speaking?'speaking':(R.typing||R.active>0)?'thinking':vm.muted?'muted':vm.idle?'idle':vm.armed?'listening':(vm.wake&&Date.now()>=(vm.follow||0))?'wait':vm.listening?'listening':'idle';
   d.className='vo st-'+st;
-  const names={speaking:cap(R.speaking||'')+' is speaking. Tap to interrupt.',thinking:R.typing?cap(R.typing)+' is thinking…':'They are talking…',muted:'Muted',idle:'Tap the orb and speak',listening:'Listening…'};
+  const names={speaking:cap(R.speaking||'')+' is speaking. Tap to interrupt.',thinking:R.typing?cap(R.typing)+' is thinking…':'They are talking…',muted:'Muted',idle:'Tap the orb and speak',listening:'Listening…',wait:'Say a name: '+getRoom(R.id).members.map(n=>wnGet(n)[0]).filter(Boolean).join(', ')};
   $('#vst').textContent=names[st];$('#vcap').textContent=vm.caption||'';
-  d.querySelectorAll('.vp').forEach(p=>{p.classList.toggle('on',p.dataset.n===(R.speaking||R.typing));p.classList.toggle('muted',isMuted(getRoom(R.id),p.dataset.n))});
+  d.querySelectorAll('.vp').forEach(p=>{p.classList.toggle('on',p.dataset.n===(R.speaking||R.typing));p.classList.toggle('muted',isMuted(getRoom(R.id),p.dataset.n));const s=p.querySelector('small'),nm=wnGet(p.dataset.n)[0];if(s)s.textContent=vm.wake&&nm?nm:cap(p.dataset.n)});
+  const wk=$('#vwake');if(wk)wk.textContent=vm.wake?'Names on':'Names off';
   const pm=pendingAsk(getRoom(R.id)),va=$('#vask');
   if(va){const key=pm?'1':'';if(va.dataset.k!==key){va.dataset.k=key;va.innerHTML=pm?`<button class="btn sm" id="vyes">Allow ${esc(cap(pm.who))} to chat</button><button class="btn sm alt" id="vno">Not now</button>`:'';
     if(pm){$('#vyes').onclick=()=>answerAsk(R,pm,true,{speak:true});$('#vno').onclick=()=>answerAsk(R,pm,false,{speak:true})}}}
@@ -1458,15 +1487,30 @@ async function voiceLoop(R){
     if(vm.muted||R.active>0){vm.listening=false;vmDraw(R);await sleep(250);continue}
     vm.listening=true;vm.caption='';vmDraw(R);
     let text='';
-    try{text=await Voice.listen(p=>{vm.caption='You: '+p;vmDraw(R)})}
+    try{text=await Voice.listen(p=>{if(!vm.wake||vm.armed||Date.now()<vm.follow||roomWake(getRoom(R.id).members,p)){vm.caption='You: '+p;vmDraw(R)}})}
     catch(e){
       vm.listening=false;if(!vm.on)break;const c=String(e);
       if(c==='stop'||c==='aborted')continue;
       if(c==='perm'||c==='9'){toast('Allow the microphone to talk to the room');vmClose(R);return}
-      if(['6','7','no-speech','end'].includes(c)){if(++vm.miss>=3){vm.miss=0;vm.idle=true;vmDraw(R);await new Promise(r=>vm.tap=r);vm.idle=false}continue}
+      if(['6','7','no-speech','end'].includes(c)){if(vm.wake){await sleep(300);continue}if(++vm.miss>=3){vm.miss=0;vm.idle=true;vmDraw(R);await new Promise(r=>vm.tap=r);vm.idle=false}continue}
       await sleep(800);if(++vm.err>=4){toast('Voice input stopped. Check your internet and the Google app.');vmClose(R);return}continue}
     vm.listening=false;vm.miss=0;vm.err=0;
     if(!text.trim())continue;
+    if(vm.wake){ // only the AIs called by name answer
+      const room=getRoom(R.id);let call=roomWake(room.members,text),who,rest;
+      if(call){who=call.who;rest=call.rest}
+      else if(Date.now()<vm.follow&&vm.last&&vm.last.length){who=vm.last;rest=text.trim()} // still talking to the same AIs
+      else{vm.caption='';vmDraw(R);continue}
+      if(!rest){ // only a name: beep, then listen for the request
+        vm.armed=true;vm.caption='';wakeBeep(vm.ac);vmDraw(R);
+        try{rest=(await Voice.listen(p=>{vm.caption='You: '+p;vmDraw(R)})).trim()}catch{rest=''}
+        vm.armed=false;if(!vm.on)break;if(!rest){vm.caption='';vmDraw(R);continue}
+        const again=roomWake(room.members,rest);if(again&&again.rest){who=again.who;rest=again.rest}}
+      vm.last=who;vm.caption='You: '+rest;vmDraw(R);
+      await converse(R,(who==='all'?'@all ':who.map(x=>'@'+x).join(' ')+' ')+rest,{speak:true});
+      if(!vm.on)break;
+      if(wakeFollowSec()){vm.follow=Date.now()+wakeFollowSec()*1000;setTimeout(()=>{if(R.vm===vm)vmDraw(R)},wakeFollowSec()*1000+80)}else vm.follow=0;
+      vmDraw(R);continue}
     vm.caption='You: '+text;vmDraw(R);
     await converse(R,text,{speak:true});
   }

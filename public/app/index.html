@@ -380,7 +380,7 @@ async function listView(){
   if(!providers.length){$('#list').innerHTML=`<div class="empty">${orb()}<b style="color:var(--tx);font-size:18px">No AIs yet</b><p>Add ChatGPT, Gemini, DeepSeek or any chat website, then talk to it from here.</p><button class="btn" id="a2">Add your first AI</button></div>`;$('#a2').onclick=addSheet;return}
   $('#list').innerHTML=`<div class="sec2"><span>Your AIs</span><span>${providers.length}</span></div>`+[...providers].sort((a,b)=>(jget('pins',[]).includes(b.name)?1:0)-(jget('pins',[]).includes(a.name)?1:0)).map((p,ix)=>{let h='';try{h=new URL(p.url).host}catch{}
     const n=lastText(p.name);
-    return `<button class="card prov" style="--i:${ix}" data-n="${esc(p.name)}"><div class="av">${logo(p.name,34)}</div><div class="m"><b>${jget('pins',[]).includes(p.name)?'★ ':''}${esc(p.name)}</b><small>${esc(n||h)}</small></div><span class="dot ${p.hasSession?'on':''}" title="${p.hasSession?'Signed in':'Not signed in'}"></span></button>`}).join('')
+    return `<button class="card prov" style="--i:${ix}" data-n="${esc(p.name)}"><div class="av">${logo(p.name,34)}</div><div class="m"><b>${jget('pins',[]).includes(p.name)?'★ ':''}${esc(p.name)}</b><small>${esc(n||h)}</small></div><span class="dot ${p.sessionExpired?'':p.hasSession?'on':''}" title="${p.sessionExpired?'Session expired - log in again':p.hasSession?'Signed in':'Not signed in'}" ${p.sessionExpired?'style="background:#f87171"':''}></span></button>`}).join('')
    +`<p class="mu" style="font-size:13px;text-align:center;margin-top:18px">Green dot: signed in to that site. Open Settings → Sign in to a site if a dot is grey.</p>`;
   document.querySelectorAll('.prov').forEach(b=>b.onclick=()=>location.hash='#/chat/'+encodeURIComponent(b.dataset.n));
 }

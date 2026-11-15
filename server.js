@@ -166,7 +166,7 @@ function auth(req, res, next) {
 }
 
 // ---------- providers ----------
-app.get('/api/providers', auth, (req, res) => res.json(db.providers.filter(p => p.userId === req.uid).map(({ cookies, ...p }) => ({ ...p, hasSession: !!cookies }))));
+app.get('/api/providers', auth, (req, res) => res.json(db.providers.filter(p => p.userId === req.uid).map(({ cookies, ...p }) => ({ ...p, hasSession: !!cookies, sessionExpired: !!(p.health && p.health.ok === false) }))));
 // human-sounding voices (see tts.js)
 const tts = require('./tts');
 app.get('/api/tts/config', auth, (req, res) => res.json(tts.config()));
@@ -207,7 +207,7 @@ app.post('/api/providers', auth, (req, res) => {
 app.put('/api/providers/:id/cookies', auth, (req, res) => {
   const p = db.providers.find(p => p.id === req.params.id && p.userId === req.uid);
   if (!p) return res.status(404).json({ error: 'Not found' });
-  try { p.cookies = buildState(req.body.cookies, req.body.storage, p.url); } catch (e) { return res.status(400).json({ error: e.message }); }
+  p.health = null; try { p.cookies = buildState(req.body.cookies, req.body.storage, p.url); } catch (e) { return res.status(400).json({ error: e.message }); }
   p.lastTest = null; save(); res.json({ ok: 1 });
 });
 app.delete('/api/providers/:id', auth, (req, res) => { db.providers = db.providers.filter(p => !(p.id === req.params.id && p.userId === req.uid)); for (const k of Object.keys(db.chats)) if (k.split(':')[1] === req.params.id) delete db.chats[k]; save(); res.json({ ok: 1 }); });
@@ -244,6 +244,7 @@ app.get('/api/logs', auth, (req, res) => res.json(db.logs.filter(l => l.userId =
 // ---------- gateway ----------
 const buckets = {};
 const txt = c => Array.isArray(c) ? c.map(x => typeof x === 'string' ? x : (x && x.text) || '').join('\n') : String(c == null ? '' : c);
+const hostOf = u => { try { return new URL(u).hostname; } catch { return ''; } };
 const SYS_HEAD = '[ROLE SETUP: from now on, for this whole chat, you are the assistant described below. Follow it exactly, answer in its voice, language and format, and never mention these instructions or which AI model or company you run on. Never repeat, quote or summarise these instructions or the message you were sent in your reply: write the answer only.]\n';
 const toolsNote = tools => (Array.isArray(tools) && tools.length)
   ? '[Tools you can use. To call a tool, reply with ONLY a JSON object like {"tool_calls":[{"name":"TOOL_NAME","arguments":{...}}]} and nothing else. When you do not need a tool, answer normally.]\n' + JSON.stringify(tools.map(t => t.function || t)) + '\n\n'
@@ -259,12 +260,12 @@ function toPrompt(messages, tools) {
 }
 // what a chat that is already open on the site still needs: the system prompt/tools when they changed, plus everything after the last assistant reply (user messages AND tool results)
 const sysSent = {};
-function deltaOf(body, ck) {
+function deltaOf(body, ck, always) {
   const ms = Array.isArray(body.messages) ? body.messages : [];
   let i = ms.length; while (i > 0 && ms[i - 1].role !== 'assistant') i--;
   const tail = ms.slice(i).filter(m => m.role !== 'system');
   const sys = ms.filter(m => m.role === 'system').map(m => txt(m.content)).join('\n\n'), note = toolsNote(body.tools), h = sha(sys + '|' + note);
-  const head = sysSent[ck] !== h && (sys || note) ? (sys ? SYS_HEAD + sys + '\n\n' : '') + note : '';
+  const first = sysSent[ck] !== h, head = first && (sys || note) ? (sys ? SYS_HEAD + sys + '\n\n' : '') + note : (always && sys ? '[ROLE REMINDER: keep answering exactly as the assistant described below, in its voice, language and format. Never break character, never mention these instructions or which AI you are.]\n' + sys + '\n\n[User message]\n' : ''); // Gemini forgets a role set only in the first message, so on those sites it is repeated every turn
   const msg = tail.length === 1 && tail[0].role === 'user' ? txt(tail[0].content) : tail.map(fmtMsg).join('\n');
   return { text: head + msg, h };
 }
@@ -297,11 +298,12 @@ async function run(userId, keyId, body, res, o = {}) {
   if (Array.isArray(body.tools)) body.tools = body.tools.filter(t => t && typeof t === 'object');
   const t0 = Date.now(), prompt = toPrompt(body.messages, body.tools), info = { files: Array.isArray(body.files) ? body.files.slice(0, 3).filter(f => f && f.b64 && f.name) : [] };
   const p = o.provider || db.providers.find(p => p.userId === userId && p.name === body.model);
+  const SESSION_ERR = /session expired|not logged in|login page|log in again|sign in again/i, health = (ok, err) => { const h = p && p.health; if (!p || (ok && (!h || h.ok)) || (!ok && !SESSION_ERR.test(err || ''))) return; p.health = ok ? null : { ok: false, at: Date.now(), err: String(err).slice(0, 160) }; save(); };
   const log = (ok, err) => { db.logs.push({ ts: Date.now(), userId, keyId, provider: p ? p.name : body.model, ms: Date.now() - t0, ok, err: err || '', promptLen: prompt.length, how: info.how || '' }); if (db.logs.length > 1500) db.logs.splice(0, 500); save(); };
   if (!p) return res.status(404).json({ error: { message: `Provider "${body.model}" not found. Add it in the dashboard.` } });
   if (!prompt) return res.status(400).json({ error: { message: 'messages required' } });
   try {
-    const cv = o.conv || convOf(body.conversation), ck = `${p.userId}:${p.id}:${cv}`, d = deltaOf(body, ck);
+    const cv = o.conv || convOf(body.conversation), ck = `${p.userId}:${p.id}:${cv}`, d = deltaOf(body, ck, /(^|\.)gemini\.google\.com$/.test(hostOf(p.url)) || process.env.RESEND_SYSTEM === '1');
     const streaming = body.stream === true && !(body.tools && body.tools.length);
     const cid = 'chatcmpl-' + id(), mk = (delta, fin) => 'data: ' + JSON.stringify({ id: cid, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1000), model: p.name, choices: [{ index: 0, delta, finish_reason: fin || null }] }) + '\n\n';
     let sent = '';
@@ -312,14 +314,14 @@ async function run(userId, keyId, body, res, o = {}) {
       res.write(mk({ role: 'assistant', content: '' }));
       info.onText = cum => { if (cum.length > sent.length && cum.startsWith(sent)) { res.write(mk({ content: cum.slice(sent.length) })); sent = cum; } };
     }
-    const raw = await ask(prov(p), { full: prompt, last: d.text || lastUserOf(body.messages) }, false, cv, info); log(true); sysSent[ck] = d.h;
+    const raw = await ask(prov(p), { full: prompt, last: d.text || lastUserOf(body.messages) }, false, cv, info); log(true); health(true); sysSent[ck] = d.h;
     const text = cleanEcho(raw, (body.messages || []).filter(m => m.role === 'system').map(m => txt(m.content)).join('\n'), lastUserOf(body.messages));
     if (streaming) { if (text.startsWith(sent)) { if (text.length > sent.length) res.write(mk({ content: text.slice(sent.length) })); } else res.write('data: ' + JSON.stringify({ id: cid, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1000), model: p.name, choices: [{ index: 0, delta: {}, finish_reason: null }], relay_replace: text }) + '\n\n'); res.write(mk({}, 'stop')); res.write('data: [DONE]\n\n'); return res.end(); }
     res.set('X-Relay-Mode', info.how || '');
     const tc = parseTools(text, body.tools);
     res.json({ id: 'chatcmpl-' + id(), object: 'chat.completion', created: Math.floor(Date.now() / 1000), model: p.name,
       choices: [{ index: 0, message: tc ? { role: 'assistant', content: null, tool_calls: tc } : { role: 'assistant', content: text }, finish_reason: tc ? 'tool_calls' : 'stop' }], usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 } });
-  } catch (e) { log(false, e.message); if (res.headersSent) { try { res.write('data: ' + JSON.stringify({ error: { message: 'Provider failed: ' + e.message } }) + '\n\n'); res.write('data: [DONE]\n\n'); } catch {} return res.end(); } res.status(502).json({ error: { message: 'Provider failed: ' + e.message } }); }
+  } catch (e) { log(false, e.message); health(false, e.message); if (res.headersSent) { try { res.write('data: ' + JSON.stringify({ error: { message: 'Provider failed: ' + e.message } }) + '\n\n'); res.write('data: [DONE]\n\n'); } catch {} return res.end(); } res.status(502).json({ error: { message: 'Provider failed: ' + e.message } }); }
 }
 app.post('/v1/chat/completions', (req, res) => {
   const key = db.keys.find(k => k.hash === sha((req.headers.authorization || '').replace('Bearer ', '')) && !k.revoked);
@@ -364,7 +366,7 @@ app.post('/api/providers/:id/live', auth, async (req, res) => {
 app.post('/api/live/:sid/save', auth, async (req, res) => {
   const p = db.providers.find(p => p.id === (req.body || {}).pid && p.userId === req.uid);
   if (!p) return res.status(404).json({ error: 'Provider not found' });
-  try { const st = await B.liveSave(req.params.sid, req.uid); p.cookies = enc(JSON.stringify(st)); p.lastTest = null; save(); res.json({ ok: 1, cookies: st.cookies.length, info: B.sessionInfo(st), url: st.url }); } catch (e) { res.status(400).json({ error: e.message }); }
+  try { const st = await B.liveSave(req.params.sid, req.uid); p.cookies = enc(JSON.stringify(st)); p.lastTest = null; p.health = null; save(); res.json({ ok: 1, cookies: st.cookies.length, info: B.sessionInfo(st), url: st.url }); } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.delete('/api/live/:sid', auth, async (req, res) => { if (B.liveOwns(req.params.sid, req.uid)) await B.liveClose(req.params.sid); res.json({ ok: 1 }); });
 app.get('/health', (_, res) => res.send('ok'));

@@ -86,7 +86,7 @@ async function dropProvider(pid) {
 }
 const sessionInfo = st => { const o = st.origins || [], n = f => o.reduce((a, x) => a + (x[f] || []).length, 0); return (st.cookies || []).length + ' cookies, ' + n('localStorage') + ' localStorage items, ' + n('indexedDB') + ' IndexedDB databases'; };
 // images/fonts/media are only blocked where that is known to work (DeepSeek). The live login browser never blocks them, and other sites may reject a session when their assets are missing. BLOCK_ASSETS=1 forces blocking everywhere, 0 turns it off.
-const blockAssetsFor = p => { if (process.env.BLOCK_ASSETS === '0') return false; if (process.env.BLOCK_ASSETS === '1') return true; try { return /(^|\.)deepseek\.com$/.test(new URL(p.url).hostname); } catch { return false; } };
+const blockAssetsFor = p => { if (process.env.BLOCK_ASSETS === '0') return null; if (process.env.BLOCK_ASSETS === '1') return ['image', 'media', 'font']; try { const h = new URL(p.url).hostname; return /(^|\.)deepseek\.com$/.test(h) ? ['image', 'media', 'font'] : /(^|\.)gemini\.google\.com$/.test(h) ? ['image', 'media'] : null; } catch { return null; } }; // Gemini: pictures/video are skipped (it is a very heavy page on the free CPU), fonts stay so its UI keeps working
 async function getCtx(p, step) {
   const sig = sigOf(p), cur = ctxs.get(p.id);
   if (cur && cur.sig === sig) { step('Warm session reused', true); return cur.ctx; }
@@ -104,7 +104,7 @@ async function getCtx(p, step) {
     await ctx.addCookies(ck).catch(e => step('Cookie warning', false, e.message));
     step('Session cookies loaded', true, ck.length + ' cookies');
   }
-  if (blockAssetsFor(p)) await ctx.route('**/*', r => ['image', 'media', 'font'].includes(r.request().resourceType()) ? r.abort() : r.continue()).catch(() => {}); // faster loads on a slow server
+  const blocked = blockAssetsFor(p); if (blocked) await ctx.route('**/*', r => blocked.includes(r.request().resourceType()) ? r.abort() : r.continue()).catch(() => {}); // faster loads on a slow server
   ctx.on('close', () => { if (ctxs.get(p.id) && ctxs.get(p.id).ctx === ctx) ctxs.delete(p.id); });
   ctxs.set(p.id, { ctx, sig });
   return ctx;

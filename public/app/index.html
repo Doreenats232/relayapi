@@ -244,6 +244,10 @@ button:active:not(:disabled){transform:scale(.97)}
 .crem{display:grid;grid-template-columns:repeat(8,1fr);gap:6px}
 .crem button{aspect-ratio:1;border-radius:11px;background:var(--s2);border:1px solid transparent;font-size:19px;padding:0}.crem button.on{border-color:var(--a1);background:var(--s3)}
 .crsws{display:flex;gap:10px;flex-wrap:wrap}.crsws button{width:34px;height:34px;border-radius:50%;border:2px solid transparent;padding:0}.crsws button.on{border-color:var(--tx);box-shadow:0 0 0 2px var(--ink) inset}
+
+/* wake name */
+.vwk{margin:6px auto 0;font-size:13px;padding:6px 14px;opacity:.85}
+.vo.st-wait .vcore{opacity:.5;filter:saturate(.6);animation:none}.vo.st-wait .vglow{opacity:.35}
 </style>
 </head>
 <body>
@@ -518,10 +522,10 @@ async function chatView(pn){
   }
   $('#sd').onclick=send;
   function svDraw(){const d=$('#vo');if(!d||!sv)return;
-    const st=sv.speaking?'speaking':busy?'thinking':sv.muted?'muted':sv.idle?'idle':sv.listening?'listening':'idle';
+    const st=sv.speaking?'speaking':busy?'thinking':sv.muted?'muted':sv.idle?'idle':sv.armed?'listening':(sv.wake&&Date.now()>=(sv.follow||0))?'wait':sv.listening?'listening':'idle';
     d.className='vo st-'+st;
-    const names={speaking:cap(pn)+' is speaking. Tap to interrupt.',thinking:cap(pn)+' is thinking…',muted:'Muted',idle:'Tap the orb and speak',listening:'Listening…'};
-    $('#vst').textContent=names[st];$('#vcap').textContent=sv.caption||'';
+    const names={speaking:cap(pn)+' is speaking. Tap to interrupt.',thinking:cap(pn)+' is thinking…',muted:'Muted',idle:'Tap the orb and speak',listening:'Listening…',wait:'Say “'+(wakeNames()[0]||cap(pn))+'” to talk'};
+    $('#vst').textContent=names[st];$('#vcap').textContent=sv.caption||'';const wk=$('#vwake');if(wk)wk.textContent=sv.wake?'Name: '+wakeNames().join(' / '):'Wake name: off';
     d.querySelectorAll('.vp').forEach(p=>p.classList.toggle('on',st==='speaking'||st==='thinking'));
     $('#vmute').innerHTML=sv.muted?ICON.micoff:ICON.mic;$('#vmute').classList.toggle('off',sv.muted)}
   function svClose(){
@@ -534,11 +538,13 @@ async function chatView(pn){
     if(busy){toast('Wait for the reply to finish first');return}
     if(sv&&sv.on)return;
     try{A&&A.keepOn&&A.keepOn(true);if(A&&A.voiceBg&&localStorage.vbg!=='0')A.voiceBg(true)}catch{}
-    sv={on:true,muted:false,listening:false,idle:false,speaking:false,caption:'',miss:0,err:0,tap:null,say:''};
+    sv={on:true,muted:false,listening:false,idle:false,speaking:false,caption:'',miss:0,err:0,tap:null,say:'',wake:localStorage.wakeOn==='1'&&wakeNames().length>0,armed:false,follow:0,ac:null};
+    try{sv.ac=new (window.AudioContext||window.webkitAudioContext)()}catch{}
     const d=document.createElement('div');d.id='vo';d.className='vo';
     d.innerHTML=`<div class="vtop"><b>${esc(cap(pn))}</b></div><div class="vst" id="vst"></div>
     <button class="vorb" id="vorb" aria-label="Tap to interrupt or talk"><span class="vglow"></span><span class="vcore">${ICON.spark}</span></button>
     <div class="vcap" id="vcap"></div>
+    <button class="chip vwk" id="vwake"></button>
     <div class="vpeople"><div class="vp"><div class="av">${logo(pn,34)}</div><small>${esc(cap(pn))}</small></div></div>
     <div class="vbtns"><button class="ib big" id="vmute" aria-label="Mute">${ICON.mic}</button><button class="ib big end" id="vend" aria-label="End">${ICON.x}</button></div>`;
     document.body.appendChild(d);
@@ -546,6 +552,16 @@ async function chatView(pn){
     $('#vorb').onclick=()=>{if(sv.speaking)Voice.stopSpeak();else if(sv.tap){const t=sv.tap;sv.tap=null;t()}};
     $('#vmute').onclick=()=>{sv.muted=!sv.muted;if(sv.muted)Voice.stopListen();svDraw()};
     $('#vend').onclick=svClose;
+    $('#vwake').onclick=()=>{
+      let on=sv.wake,fl=wakeFollowSec();
+      const w=sheet(`<h2>Wake name</h2><p class="mu">The call keeps listening, but ${esc(cap(pn))} only answers after it hears its name, like \u201cMiles, what is the weather?\u201d. Add spellings your phone might hear, separated by commas.</p><input class="in" id="wn" placeholder="Miles, Myles" value="${esc(localStorage.wakeNames||'')}"><div class="sec" style="margin-top:16px">Only answer to its name</div><div class="chips"><button class="chip" data-w="1">On</button><button class="chip" data-w="0">Off</button></div><div class="sec">After a reply, keep listening without the name</div><div class="chips">${[0,10,20,30].map(s=>`<button class="chip" data-f="${s}">${s?s+' seconds':'Off'}</button>`).join('')}</div><button class="btn" id="wsv" style="margin-top:16px;width:100%">Done</button>`);
+      const paint=()=>{w.querySelectorAll('[data-w]').forEach(b=>b.classList.toggle('on',(b.dataset.w==='1')===on));w.querySelectorAll('[data-f]').forEach(b=>b.classList.toggle('on',+b.dataset.f===fl))};paint();
+      w.querySelectorAll('[data-w]').forEach(b=>b.onclick=()=>{on=b.dataset.w==='1';paint()});
+      w.querySelectorAll('[data-f]').forEach(b=>b.onclick=()=>{fl=+b.dataset.f;paint()});
+      w.querySelector('#wsv').onclick=()=>{const names=w.querySelector('#wn').value.split(',').map(s=>s.trim()).filter(Boolean).join(', ');
+        if(on&&!names){toast('Type the name it should answer to');return}
+        localStorage.wakeNames=names;localStorage.wakeOn=on?'1':'0';localStorage.wakeFollow=String(fl);
+        if(sv){sv.wake=on&&!!names;sv.follow=0;sv.armed=false;Voice.stopListen();svDraw()}w.remove()}};
     svDraw();svLoop()}
   async function svLoop(){
     const me=sv;
@@ -553,13 +569,23 @@ async function chatView(pn){
       if(me.muted||busy){me.listening=false;svDraw();await sleep(250);continue}
       me.listening=true;me.caption='';svDraw();
       let text='';
-      try{text=await Voice.listen(p=>{me.caption='You: '+p;svDraw()})}
+      try{text=await Voice.listen(p=>{if(!me.wake||me.armed||Date.now()<me.follow||wakeMatch(p,wakeNames())){me.caption='You: '+p;svDraw()}})}
       catch(e){me.listening=false;if(!me.on)break;const c=String(e);
         if(c==='stop'||c==='aborted')continue;
         if(c==='perm'||c==='9'){toast('Allow the microphone to talk');svClose();return}
-        if(['6','7','no-speech','end'].includes(c)){if(++me.miss>=3){me.miss=0;me.idle=true;svDraw();await new Promise(r=>me.tap=r);me.idle=false}continue}
+        if(['6','7','no-speech','end'].includes(c)){if(me.wake){await sleep(300);continue}if(++me.miss>=3){me.miss=0;me.idle=true;svDraw();await new Promise(r=>me.tap=r);me.idle=false}continue}
         await sleep(800);if(++me.err>=4){toast('Voice input stopped. Check your internet and the Google app.');svClose();return}continue}
       me.listening=false;me.miss=0;me.err=0;
+      if(me.wake&&text.trim()){ // only act when its name was said (or we are inside the follow-up window after a reply)
+        const m=wakeMatch(text,wakeNames());let cmd;
+        if(Date.now()<me.follow)cmd=(m?m.rest:text).trim();
+        else if(m)cmd=m.rest.trim();
+        else{me.caption='';svDraw();continue}
+        if(!cmd){ // only the name was said: beep, then listen for the request
+          me.armed=true;me.caption='';wakeBeep(me.ac);svDraw();
+          try{cmd=(await Voice.listen(p=>{me.caption='You: '+p;svDraw()})).trim()}catch{cmd=''}
+          me.armed=false;if(!me.on)break;if(!cmd){me.caption='';svDraw();continue}}
+        text=cmd}
       if(!text.trim())continue;
       me.caption='You: '+text;me.say='';svDraw();
       ta.value=text;
@@ -568,7 +594,9 @@ async function chatView(pn){
       const last=msgs[msgs.length-1];
       if(last&&last.err){me.caption=String(last.content).slice(0,140);svDraw();await sleep(2500)}
       else if(me.say){me.speaking=true;me.caption=cap(pn)+': '+me.say;svDraw();await Voice.speak(me.say,{p:1,r:1,idx:soloIdx(pn),n:pn});me.speaking=false}
-      me.say='';svDraw()}}
+      me.say='';
+      if(me.wake&&wakeFollowSec()){me.follow=Date.now()+wakeFollowSec()*1000;setTimeout(()=>{if(sv===me)svDraw()},wakeFollowSec()*1000+80)}else me.follow=0;
+      svDraw()}}
   $('#vc').onclick=svStart;
   const pinI=()=>{$('#pin').textContent=jget('pins',[]).includes(pn)?'★':'☆'};pinI();
   $('#pin').onclick=()=>{let a=jget('pins',[]);if(a.includes(pn)){a=a.filter(x=>x!==pn);toast('Unpinned')}else{a.push(pn);toast('Pinned to the top')}localStorage.pins=JSON.stringify(a);pinI()};
@@ -1027,6 +1055,22 @@ function toggleMute(R,n){const room=getRoom(R.id);room.muted=room.muted||[];
   else{room.muted.push(n);toast(cap(n)+' is muted');if(R.typing===n)try{R.ctl&&R.ctl.abort()}catch{};if(R.speaking===n)Voice.stopSpeak()}
   saveRoom(room);drawBar(R);refresh(R)}
 function begin(R){askNotif();const my=++R.run;Voice.stopSpeak();try{R.ctl&&R.ctl.abort()}catch{};return my}
+
+/* wake name: the call keeps listening but only answers after it hears the AI's name */
+const wakeNorm=s=>String(s||'').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim();
+const wakeNames=()=>(localStorage.wakeNames||'').split(',').map(s=>s.trim()).filter(Boolean);
+const wakeFollowSec=()=>localStorage.wakeFollow===undefined?10:Math.max(0,+localStorage.wakeFollow||0);
+function wakeLev(a,b){const m=a.length,n=b.length;if(!m)return n;if(!n)return m;let p=Array.from({length:n+1},(_,j)=>j);for(let i=1;i<=m;i++){const c=[i];for(let j=1;j<=n;j++)c[j]=Math.min(p[j]+1,c[j-1]+1,p[j-1]+(a[i-1]===b[j-1]?0:1));p=c}return p[n]}
+const WAKE_FILL=new Set(['hey','hi','ok','okay','yo','hello','oh','hay']);
+function wakeMatch(text,names){ // {rest} = what was said besides the name, or null when the name was not said
+  const toks=String(text||'').trim().split(/\s+/).filter(Boolean);if(!toks.length)return null;
+  const nt=toks.map(wakeNorm),clean=s=>s.replace(/^[,.:;!?\s-]+/,'').replace(/[,\s]+$/,'');
+  for(const raw of names){const n=wakeNorm(raw);if(!n)continue;const nw=n.split(' ').length,len=n.replace(/ /g,'').length,tol=len>=7?2:len>=4?1:0;
+    let i=0;while(i<2&&i<nt.length&&WAKE_FILL.has(nt[i]))i++;
+    if(i+nw<=nt.length&&wakeLev(nt.slice(i,i+nw).join(' '),n)<=tol)return{rest:clean(toks.slice(i+nw).join(' '))}; // at the start (after "hey"): a close spelling is fine
+    for(let j=0;j+nw<=nt.length;j++)if(nt.slice(j,j+nw).join(' ')===n)return{rest:clean(toks.filter((_,k)=>k<j||k>=j+nw).join(' '))}} // anywhere else: only the exact name
+  return null}
+function wakeBeep(ac){try{navigator.vibrate&&navigator.vibrate(25)}catch{}try{if(!ac)return;ac.resume&&ac.resume();const o=ac.createOscillator(),g=ac.createGain();o.type='sine';o.frequency.setValueAtTime(660,ac.currentTime);o.frequency.setValueAtTime(990,ac.currentTime+.07);g.gain.setValueAtTime(.0001,ac.currentTime);g.gain.exponentialRampToValueAtTime(.18,ac.currentTime+.02);g.gain.exponentialRampToValueAtTime(.0001,ac.currentTime+.16);o.connect(g);g.connect(ac.destination);o.start();o.stop(ac.currentTime+.17)}catch{}}
 
 /* voice layer: Android speech services inside the app, the browser's own otherwise */
 const SRC=window.SpeechRecognition||window.webkitSpeechRecognition;

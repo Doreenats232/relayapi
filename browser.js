@@ -8,7 +8,42 @@ const SITE = { 'deepseek.com': { strip: /^(new chat|message deepseek|deepthink( 
 const siteOf = p => { try { const h = new URL(p.url).hostname, k = Object.keys(SITE).sort((a, b) => b.length - a.length).find(k => h === k || h.endsWith('.' + k)); return k ? SITE[k] : {}; } catch { return {}; } };
 const HINTS = { 'chat.deepseek.com': '.ds-markdown', 'gemini.google.com': 'model-response message-content, .model-response-text' }; // known reply containers (used only if present on the page)
 const BOILER = /^(New chat|AI-generated, for reference only|Copy|Regenerate|Share|Like|Dislike|Retry|Read aloud|Edit message)$/i;
-const tidy = lines => lines.filter((l, i) => l && !BOILER.test(l) && l !== lines[i - 1]);
+const tidy = lines => lines.filter(l => !BOILER.test(l.trim())); // only the site's own button labels; never repeated lines (that is code), never indentation
+// ---- reading a reply off a chat page WITHOUT damaging code ----
+// The old way (subtract every line that was on the page before, drop repeated lines, trim, drop blank lines) deleted `}`, `</div>`, CSS lines that
+// matched earlier messages and wiped indentation, so bigger generated apps came back with holes. Now: find the message we typed, take everything
+// after it untouched, and only cut the page's static footer (found by comparing the page before and right after sending).
+const nzLines = a => a.map(x => x.trim()).filter(Boolean);
+function blockEnd(lines, sent) { // index (in `lines`) of the last line of the LAST place where the whole sent message appears as consecutive non-empty lines; -1 if absent
+  const idx = [], tr = []; lines.forEach((l, i) => { const t = l.trim(); if (t) { idx.push(i); tr.push(t); } });
+  const n = sent.length; if (!n) return -1;
+  for (let k = tr.length - n; k >= 0; k--) { let ok = true; for (let m = 0; m < n; m++) if (tr[k + m] !== sent[m]) { ok = false; break; } if (ok) return idx[k + n - 1]; }
+  return -1;
+}
+function footerOf(beforeRaw, s1Raw, sentText) { // static lines the page keeps AFTER the newest message (input hints, disclaimers); null = not measurable yet
+  const s1 = s1Raw.split('\n'), sent = nzLines(sentText.split('\n'));
+  if (blockEnd(s1, sent) < 0) return null; // our message is not on the page yet
+  const b = nzLines(beforeRaw.split('\n')), a = nzLines(s1), f = [];
+  for (let i = b.length - 1, j = a.length - 1; i >= 0 && j >= 0 && b[i] === a[j] && f.length < 12; i--, j--) f.unshift(a[j]);
+  return f;
+}
+function dropFooter(lines, footer) {
+  if (!footer || !footer.length) return lines;
+  let end = lines.length, q = footer.length - 1;
+  for (let p = lines.length - 1; p >= 0 && q >= 0; p--) { const t = lines[p].trim(); if (!t) continue; if (t !== footer[q]) break; end = p; q--; }
+  return lines.slice(0, end);
+}
+function posDiff(beforeRaw, afterRaw) { // fallback when our message cannot be found: whatever changed between the two pages (cut at the start and end only)
+  const b = beforeRaw.split('\n').map(x => x.trim()), al = afterRaw.split('\n'), a = al.map(x => x.trim());
+  let i = b.length, j = a.length; while (i > 0 && j > 0 && b[i - 1] === a[j - 1]) { i--; j--; }
+  let k = 0; while (k < i && k < j && b[k] === a[k]) k++;
+  return al.slice(k, j);
+}
+function newLines(beforeRaw, afterRaw, sentText, footer) {
+  const al = afterRaw.split('\n'), end = blockEnd(al, nzLines(sentText.split('\n')));
+  return dropFooter(end >= 0 ? al.slice(end + 1) : posDiff(beforeRaw, afterRaw), footer);
+}
+
 const cl = v => { v = String(v || '').trim(); return /^(blank|auto|none|optional|n\/a)\b|press enter|auto-detect/i.test(v) ? '' : v; }; // ignore placeholder text pasted into selector fields
 // any editable thing: sites now use contenteditable="plaintext-only", custom elements (rich-textarea), search/untyped inputs...
 const DEFAULT_SEL = 'textarea, [contenteditable]:not([contenteditable="false"]), [role="textbox"], rich-textarea, input[type="text"], input[type="search"], input:not([type])';
@@ -278,7 +313,7 @@ async function doAsk(p, prompt, dbg, conv, retry = true, info = {}) {
     if (!rsel) { try { rsel = HINTS[new URL(p.url).hostname] || ''; hinted = !!rsel; } catch {} }
     const n0 = rsel ? await page.locator(rsel).count() : 0;
     const before = await page.evaluate(() => document.body.innerText);
-    const bc = counts(before.split('\n')), pc = counts(text.split('\n'));
+    let footer = null, footerTries = 0; // the page's static footer, measured once our message shows up
     await box.click(); await page.keyboard.insertText(text); await page.waitForTimeout(250);
     step('Message typed', true, `${text.length} chars` + (warm && text !== full ? ' (conversation continues, history not resent)' : ''));
     await shot('2. Message typed');
@@ -295,12 +330,12 @@ async function doAsk(p, prompt, dbg, conv, retry = true, info = {}) {
       }
       src = 'auto-detect (new page text)';
       raw = await page.evaluate(() => document.body.innerText);
-      const b = new Map(bc), q = new Map(pc), out = [];
-      for (const l of raw.split('\n').map(s => s.trim())) { if (!l) continue; if (b.get(l) > 0) { b.set(l, b.get(l) - 1); continue; } if (q.get(l) > 0) { q.set(l, q.get(l) - 1); continue; } out.push(l); }
-      busyNow = !!(site.busy && out.some(l => site.busy.test(l)));
-      let lines = tidy(out);
-      if (site.after) { let k = -1; lines.forEach((l, i) => { if (site.after.test(l)) k = i; }); if (k >= 0) lines = lines.slice(k + 1); } // keep only what comes after the site's "answer starts here" marker
-      return lines.filter(l => !(site.busy && site.busy.test(l)) && !(site.strip && site.strip.test(l))).join('\n');
+      if (footer === null && ++footerTries <= 12) footer = footerOf(before, raw, text);
+      const lines0 = newLines(before, raw, text, footer);
+      busyNow = !!(site.busy && lines0.some(l => site.busy.test(l.trim())));
+      let lines = tidy(lines0);
+      if (site.after) { let k = -1; lines.forEach((l, i) => { if (site.after.test(l.trim())) k = i; }); if (k >= 0) lines = lines.slice(k + 1); } // keep only what comes after the site's "answer starts here" marker
+      return lines.filter(l => !(site.busy && site.busy.test(l.trim())) && !(site.strip && site.strip.test(l.trim()))).join('\n').replace(/^\s*\n/, '').trimEnd();
     };
     let last = '', lastChange = Date.now(), result = ''; const t1 = Date.now();
     const maxMs = (+process.env.REPLY_TIMEOUT_SEC * 1000) || site.waitMs || 120000;
@@ -310,7 +345,7 @@ async function doAsk(p, prompt, dbg, conv, retry = true, info = {}) {
       await page.waitForTimeout(400);
       const cur = await read().catch(() => '');
       if (cur !== last) { last = cur; lastChange = Date.now(); if (info.onText && cur && !busyNow) { try { info.onText(cur); } catch {} } }
-      else if (cur && !busyNow && Date.now() - lastChange >= ((cur.match(/```/g) || []).length % 2 ? Math.max(STABLE_MS, 8000) : STABLE_MS)) { result = cur; break; } // an unclosed code block means the AI is probably still writing: wait longer before calling it finished
+      else if (cur && !busyNow && Date.now() - lastChange >= (((cur.match(/```/g) || []).length % 2 || (/<!doctype html|<html[\s>]/i.test(cur) && !/<\/html>/i.test(cur))) ? Math.max(STABLE_MS, 9000) : STABLE_MS)) { result = cur; break; } // an unclosed code block, or an HTML file with no </html> yet, means the AI is probably still writing: wait longer before calling it finished
     }
     if (!result && last) result = last;
     if (!result) throw new Error('Timed out waiting for reply (' + (busyNow ? 'the site still showed a busy/thinking state' : 'no new text appeared') + '). Page text at the end: ' + String(raw || '(none read)').replace(/\s+/g, ' ').slice(-600));
@@ -407,5 +442,5 @@ async function handle(page, d) {
 }
 async function liveSave(sid, owner) { const s = liveGet(sid, owner), url = s.page.url(), st = await s.ctx.storageState({ indexedDB: true }); Object.defineProperty(st, 'url', { value: url, enumerable: false }); await liveClose(sid); return st; } // st.url = where the live page was when saved (not stored)
 async function liveClose(sid) { const s = live.get(sid); if (!s) return; clearTimeout(s.timer); live.delete(sid); await s.ctx.close().catch(() => {}); }
-module.exports = { dsList, dsMessages, dsDelete, isDS, sessionInfo, ask, forget, deleteChat, hasChat: k => !!(store.get(k) || convs.has(k)), setStore: s => { store = s; }, liveStart, liveAttach, liveSave, liveClose, liveOwns: (sid, o) => live.get(sid)?.owner === o };
+module.exports = { _extract: { newLines, footerOf, blockEnd, posDiff, dropFooter },  dsList, dsMessages, dsDelete, isDS, sessionInfo, ask, forget, deleteChat, hasChat: k => !!(store.get(k) || convs.has(k)), setStore: s => { store = s; }, liveStart, liveAttach, liveSave, liveClose, liveOwns: (sid, o) => live.get(sid)?.owner === o };
 

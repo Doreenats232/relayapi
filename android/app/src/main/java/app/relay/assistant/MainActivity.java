@@ -80,6 +80,8 @@ public class MainActivity extends Activity {
     private String pendingGo = null;
     private String pendingShare = null;
     private String pendingTask = null;
+    private String pendingCall = null;
+    private android.webkit.PermissionRequest camReq = null;
     private boolean wantVoiceBg = false;
     private Uri camUri = null;
     private LinearLayout lockView;
@@ -108,6 +110,25 @@ public class MainActivity extends Activity {
         s.setUserAgentString(s.getUserAgentString() + " RelayApp/1.0");
         web.addJavascriptInterface(new Bridge(), "Android");
         web.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onPermissionRequest(final android.webkit.PermissionRequest req) {
+                runOnUiThread(() -> {
+                    try {
+                        boolean wantsCam = false;
+                        for (String r : req.getResources()) if (android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(r)) wantsCam = true;
+                        if (!wantsCam) { req.deny(); return; }
+                        if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                            req.grant(new String[]{android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE});
+                        } else {
+                            camReq = req;
+                            requestPermissions(new String[]{Manifest.permission.CAMERA}, 9);
+                        }
+                    } catch (Exception e) {
+                        try { req.deny(); } catch (Exception ignored) { }
+                    }
+                });
+            }
+
             @Override
             public boolean onShowFileChooser(WebView w, ValueCallback<Uri[]> cb, FileChooserParams p) {
                 if (filePathCb != null) filePathCb.onReceiveValue(null);
@@ -204,6 +225,7 @@ public class MainActivity extends Activity {
         });
 
         handleIntent(getIntent());
+        try { Calls.rearmAll(this); if (getSharedPreferences(BatteryWatch.PREFS, MODE_PRIVATE).getBoolean("enabled", false)) BatteryWatch.schedule(this, 60 * 1000L); } catch (Exception ignored) { }
         if (base.isEmpty()) askServer(); else boot();
     }
 
@@ -225,6 +247,18 @@ public class MainActivity extends Activity {
         }
         if (i != null && "task".equals(i.getStringExtra("go")) && i.getStringExtra("ai") != null) {
             pendingTask = i.getStringExtra("ai") + "\n" + (i.getStringExtra("prompt") == null ? "" : i.getStringExtra("prompt"));
+            i.removeExtra("go");
+            if (web != null) js("window.__go&&window.__go()");
+        }
+        if (i != null && "call".equals(i.getStringExtra("go"))) {
+            try {
+                JSONObject o = new JSONObject();
+                o.put("ai", i.getStringExtra("ai") == null ? "" : i.getStringExtra("ai"));
+                o.put("type", i.getStringExtra("type") == null ? "audio" : i.getStringExtra("type"));
+                o.put("say", i.getStringExtra("say") == null ? "" : i.getStringExtra("say"));
+                o.put("id", i.getStringExtra("id") == null ? "" : i.getStringExtra("id"));
+                pendingCall = o.toString();
+            } catch (Exception ignored) { }
             i.removeExtra("go");
             if (web != null) js("window.__go&&window.__go()");
         }
@@ -422,6 +456,79 @@ public class MainActivity extends Activity {
             });
         }
 
+        // ----- AI calls that ring even when the app is closed, and the low-battery watch -----
+        @JavascriptInterface public void scheduleCall(String id, String json) {
+            try {
+                getSharedPreferences(Calls.PREFS, MODE_PRIVATE).edit().putString(id, json).apply();
+                Calls.arm(MainActivity.this, id);
+            } catch (Exception ignored) { }
+        }
+
+        @JavascriptInterface public void cancelCall(String id) {
+            try {
+                Calls.cancel(MainActivity.this, id);
+                getSharedPreferences(Calls.PREFS, MODE_PRIVATE).edit().remove(id).apply();
+            } catch (Exception ignored) { }
+        }
+
+        @JavascriptInterface public void testCall(String ai, String type, String say, int seconds) {
+            try {
+                JSONObject o = new JSONObject();
+                o.put("ai", ai); o.put("type", type); o.put("say", say); o.put("label", "Test call");
+                o.put("days", 0); o.put("on", true); o.put("at", System.currentTimeMillis() + Math.max(3, seconds) * 1000L);
+                getSharedPreferences(Calls.PREFS, MODE_PRIVATE).edit().putString("__test", o.toString()).apply();
+                Calls.arm(MainActivity.this, "__test");
+            } catch (Exception ignored) { }
+        }
+
+        @JavascriptInterface public String takeCall() { String g = pendingCall; pendingCall = null; return g == null ? "" : g; }
+
+        @JavascriptInterface public void batterySet(String json) {
+            try { BatteryWatch.set(MainActivity.this, new JSONObject(json)); } catch (Exception ignored) { }
+        }
+
+        @JavascriptInterface public String batteryGet() {
+            try {
+                JSONObject o = BatteryWatch.get(MainActivity.this), s = BatteryWatch.status(MainActivity.this);
+                o.put("level", s.optInt("level", -1)); o.put("charging", s.optBoolean("charging")); o.put("screenOn", s.optBoolean("screenOn"));
+                return o.toString();
+            } catch (Exception e) { return "{}"; }
+        }
+
+        @JavascriptInterface public void testAlarm() {
+            try { RingService.start(MainActivity.this, "alarm", "", "", "This is a test of the battery wake-up alarm", "Test", "test"); } catch (Exception ignored) { }
+        }
+
+        @JavascriptInterface public String callPerms() {
+            try {
+                JSONObject o = new JSONObject();
+                NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                o.put("fullScreen", android.os.Build.VERSION.SDK_INT < 34 || nm.canUseFullScreenIntent());
+                o.put("notifications", nm.areNotificationsEnabled());
+                android.os.PowerManager pm = (android.os.PowerManager) getSystemService(Context.POWER_SERVICE);
+                o.put("unrestricted", pm.isIgnoringBatteryOptimizations(getPackageName()));
+                return o.toString();
+            } catch (Exception e) { return "{}"; }
+        }
+
+        @JavascriptInterface public void openCallSettings(final String what) {
+            ui.post(() -> {
+                try {
+                    Intent i;
+                    if ("fullScreen".equals(what) && android.os.Build.VERSION.SDK_INT >= 34) {
+                        i = new Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:" + getPackageName()));
+                    } else if ("unrestricted".equals(what)) {
+                        i = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + getPackageName()));
+                    } else {
+                        i = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
+                    }
+                    startActivity(i);
+                } catch (Exception e) {
+                    try { startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()))); } catch (Exception ignored) { }
+                }
+            });
+        }
+
         @JavascriptInterface public String takeTask() { String g = pendingTask; pendingTask = null; return g == null ? "" : g; }
 
         @JavascriptInterface public String takeShare() { String g = pendingShare; pendingShare = null; return g == null ? "" : g; }
@@ -613,6 +720,16 @@ public class MainActivity extends Activity {
     @Override
     public void onRequestPermissionsResult(int code, String[] perms, int[] res) {
         super.onRequestPermissionsResult(code, perms, res);
+        if (code == 9) {
+            if (camReq != null) {
+                try {
+                    if (res.length > 0 && res[0] == PackageManager.PERMISSION_GRANTED) camReq.grant(new String[]{android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE});
+                    else camReq.deny();
+                } catch (Exception ignored) { }
+                camReq = null;
+            }
+            return;
+        }
         if (code == 77) return;
         if (wantVoiceBg && res.length > 0 && res[0] == PackageManager.PERMISSION_GRANTED && perms.length > 0 && android.Manifest.permission.RECORD_AUDIO.equals(perms[0])) {
             wantVoiceBg = false;

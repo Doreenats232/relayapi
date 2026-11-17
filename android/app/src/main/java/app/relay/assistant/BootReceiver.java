@@ -11,7 +11,7 @@ import org.json.JSONObject;
 
 import java.util.Map;
 
-/** Puts scheduled asks back after the phone restarts. */
+/** Puts scheduled asks, calls and the battery watch back after the phone restarts or the app is updated. */
 public class BootReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context c, Intent in) {
@@ -37,5 +37,7 @@ public class BootReceiver extends BroadcastReceiver {
                 am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi);
             }
         } catch (Exception ignored) { }
+        try { Calls.rearmAll(c); } catch (Exception ignored) { }
+        try { if (c.getSharedPreferences(BatteryWatch.PREFS, Context.MODE_PRIVATE).getBoolean("enabled", false)) BatteryWatch.schedule(c, 60 * 1000L); } catch (Exception ignored) { }
     }
 }

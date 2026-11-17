@@ -183,7 +183,7 @@ public class RingService extends Service {
             mp.setDataSource(this, uri);
             mp.setAudioAttributes(new AudioAttributes.Builder()
                     .setUsage(isCall ? AudioAttributes.USAGE_NOTIFICATION_RINGTONE : AudioAttributes.USAGE_ALARM)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIC).build());
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build());
             mp.setLooping(true);
             mp.prepare();
             mp.start();
@@ -196,7 +196,7 @@ public class RingService extends Service {
             long[] pat = isCall ? new long[]{0, 900, 700} : new long[]{0, 1200, 500};
             AudioAttributes aa = new AudioAttributes.Builder()
                     .setUsage(isCall ? AudioAttributes.USAGE_NOTIFICATION_RINGTONE : AudioAttributes.USAGE_ALARM)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIC).build();
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build();
             vib.vibrate(VibrationEffect.createWaveform(pat, 0), aa);
         } catch (Exception ignored) { }
     }

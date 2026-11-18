@@ -349,6 +349,7 @@ public class MainActivity extends Activity {
     /** Functions the web app can call. */
     private class Bridge {
         @JavascriptInterface public String server() { return base; }
+        @JavascriptInterface public void setIcons(String json) { IconCache.save(MainActivity.this, json); }
 
         @JavascriptInterface public String version() {
             try {

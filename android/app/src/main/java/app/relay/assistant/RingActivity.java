@@ -2,19 +2,26 @@ package app.relay.assistant;
 
 import android.app.Activity;
 import android.app.KeyguardManager;
+import android.animation.ObjectAnimator;
+import android.animation.ValueAnimator;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.Gravity;
+import android.view.MotionEvent;
+import android.view.animation.OvershootInterpolator;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -74,7 +81,7 @@ public class RingActivity extends Activity {
         root.setGravity(Gravity.CENTER_HORIZONTAL);
         root.setPadding(dp(24), dp(64), dp(24), dp(56));
         GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                call ? new int[]{Color.parseColor("#14464a"), Color.parseColor("#0C0D14")} : new int[]{Color.parseColor("#5a0f18"), Color.parseColor("#0C0D14")});
+                call ? new int[]{Color.parseColor("#0B1419"), Color.parseColor("#0A1014")} : new int[]{Color.parseColor("#5a0f18"), Color.parseColor("#0C0D14")});
         root.setBackground(bg);
 
         if (call) buildCall(root); else buildAlarm(root);
@@ -88,23 +95,107 @@ public class RingActivity extends Activity {
         else registerReceiver(ended, f);
     }
 
-    private void buildCall(LinearLayout root) {
-        boolean video = "video".equals(type);
-        String name = ai.isEmpty() ? "Relay" : Character.toUpperCase(ai.charAt(0)) + ai.substring(1);
-        root.addView(text("Relay " + (video ? "video" : "audio") + " call", 15, Color.parseColor("#9AA3B8"), false));
-        TextView nm = text(name, 36, Color.WHITE, true);
-        nm.setPadding(0, dp(12), 0, dp(6));
-        root.addView(nm);
-        root.addView(text("Incoming call\u2026", 16, Color.parseColor("#9AA3B8"), false));
-
+    /** The round picture: the AI's own logo (cached favicon), or its first letter on a colour until the logo is there. */
+    private View avatar(String name) {
         int[] pal = {0xFF22C55E, 0xFF6366F1, 0xFFF59E0B, 0xFFEC4899, 0xFF0EA5E9, 0xFF14B8A6, 0xFFF97316};
         int h = 0;
         for (int k = 0; k < name.length(); k++) h = (h * 31 + name.charAt(k)) & 0x7fffffff;
-        TextView av = text(name.substring(0, 1).toUpperCase(), 64, Color.WHITE, true);
-        av.setBackground(oval(pal[h % pal.length]));
-        LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(dp(170), dp(170));
-        ap.topMargin = dp(48);
-        root.addView(av, ap);
+        final FrameLayout f = new FrameLayout(this);
+        f.setBackground(oval(pal[h % pal.length]));
+        final TextView letter = text(name.substring(0, 1).toUpperCase(), 80, Color.WHITE, true);
+        f.addView(letter, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        final ImageView img = new ImageView(this);
+        img.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        img.setPadding(dp(64), dp(64), dp(64), dp(64));
+        img.setVisibility(View.GONE);
+        f.addView(img, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        final String host = IconCache.hostFor(this, ai);
+        if (!host.isEmpty()) {
+            new Thread(() -> {
+                final Bitmap bm = IconCache.get(getApplicationContext(), host);
+                if (bm == null) return;
+                runOnUiThread(() -> {
+                    f.setBackground(oval(Color.WHITE));
+                    letter.setVisibility(View.GONE);
+                    img.setImageBitmap(bm);
+                    img.setVisibility(View.VISIBLE);
+                });
+            }).start();
+        }
+        return f;
+    }
+
+    private FrameLayout circleBtn(int icon, int color) {
+        FrameLayout f = new FrameLayout(this);
+        f.setBackground(oval(color));
+        f.setClipChildren(false);
+        ImageView iv = new ImageView(this);
+        iv.setImageResource(icon);
+        f.addView(iv, new FrameLayout.LayoutParams(dp(32), dp(32), Gravity.CENTER));
+        return f;
+    }
+
+    private LinearLayout column(View btn, TextView cap) {
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setGravity(Gravity.CENTER_HORIZONTAL);
+        col.setClipChildren(false);
+        col.addView(btn, new LinearLayout.LayoutParams(dp(74), dp(74)));
+        cap.setPadding(0, dp(10), 0, 0);
+        col.addView(cap);
+        return col;
+    }
+
+    /** Like WhatsApp: the green button hops to hint that it can be swiped; drag it up to accept, let go early and it springs back. */
+    private void swipeToAnswer(final View btn, final View cap) {
+        final float need = dp(120);
+        final ObjectAnimator hint = ObjectAnimator.ofFloat(btn, "translationY", 0f, -dp(18), 0f);
+        hint.setDuration(1400);
+        hint.setRepeatCount(ValueAnimator.INFINITE);
+        hint.start();
+        btn.setOnTouchListener(new View.OnTouchListener() {
+            float y0;
+            @Override public boolean onTouch(View v, MotionEvent e) {
+                switch (e.getActionMasked()) {
+                    case MotionEvent.ACTION_DOWN:
+                        y0 = e.getRawY();
+                        hint.cancel();
+                        btn.setTranslationY(0f);
+                        return true;
+                    case MotionEvent.ACTION_MOVE: {
+                        float dy = Math.min(0f, e.getRawY() - y0);
+                        btn.setTranslationY(dy);
+                        cap.setAlpha(Math.max(0f, 1f + dy / need));
+                        return true;
+                    }
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL: {
+                        float dy = e.getRawY() - y0;
+                        if (e.getActionMasked() == MotionEvent.ACTION_UP && -dy >= need) { answer(); return true; }
+                        btn.animate().translationY(0f).setDuration(240).setInterpolator(new OvershootInterpolator()).start();
+                        cap.animate().alpha(1f).setDuration(200).start();
+                        btn.postDelayed(() -> hint.start(), 900);
+                        return true;
+                    }
+                    default:
+                        return false;
+                }
+            }
+        });
+    }
+
+    private void buildCall(LinearLayout root) {
+        boolean video = "video".equals(type);
+        String name = ai.isEmpty() ? "Relay" : Character.toUpperCase(ai.charAt(0)) + ai.substring(1);
+        root.setClipChildren(false);
+        TextView nm = text(name, 30, Color.WHITE, true);
+        nm.setPadding(0, dp(8), 0, dp(6));
+        root.addView(nm);
+        root.addView(text("Relay " + (video ? "video" : "voice") + " call", 17, Color.parseColor("#AEB6C1"), false));
+
+        LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(dp(250), dp(250));
+        ap.topMargin = dp(70);
+        root.addView(avatar(name), ap);
 
         if (!say.isEmpty()) {
             TextView s = text("\u201C" + (say.length() > 140 ? say.substring(0, 140) + "\u2026" : say) + "\u201D", 15, Color.parseColor("#C9CEDC"), false);
@@ -115,15 +206,30 @@ public class RingActivity extends Activity {
         View spacer = new View(this);
         root.addView(spacer, new LinearLayout.LayoutParams(1, 0, 1f));
 
+        final TextView capAns = text("Swipe up to accept", 14, Color.parseColor("#AEB6C1"), false);
+        FrameLayout decB = circleBtn(R.drawable.ic_call_end, 0xFFE8153D);
+        decB.setOnClickListener(v -> { RingService.stop(this); finish(); });
+        FrameLayout ansB = circleBtn(video ? R.drawable.ic_videocam : R.drawable.ic_call, 0xFF22A559);
+        FrameLayout msgB = circleBtn(R.drawable.ic_chat, 0xFF2B3136);
+        msgB.setOnClickListener(v -> {
+            RingService.stop(this);
+            try {
+                Intent mi = new Intent(this, MainActivity.class);
+                mi.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                startActivity(mi);
+            } catch (Exception ignored) { }
+            finish();
+        });
+
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER);
-        LinearLayout dec = action("\u2715", "Decline", Color.parseColor("#E5484D"), v -> { RingService.stop(this); finish(); });
-        LinearLayout ans = action(video ? "\uD83D\uDCF9" : "\uD83D\uDCDE", "Answer", Color.parseColor("#22C55E"), v -> answer());
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        row.addView(dec, lp);
-        row.addView(ans, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        row.setClipChildren(false);
+        row.addView(column(decB, text("Decline", 14, Color.parseColor("#AEB6C1"), false)), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        row.addView(column(ansB, capAns), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.4f));
+        row.addView(column(msgB, text("Message", 14, Color.parseColor("#AEB6C1"), false)), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         root.addView(row, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        swipeToAnswer(ansB, capAns);
     }
 
     private void buildAlarm(LinearLayout root) {

@@ -322,6 +322,7 @@ function route0(){
   if(h==='creator')return creatorView();
   if(h.startsWith('creator/'))return creatorView(decodeURIComponent(h.slice(8)));
   if(h==='tasks')return tasksView();
+  if(h==='calls')return callsView();
   return listView();
 }
 
@@ -545,12 +546,12 @@ async function chatView(pn){
     if(!sv)return;sv.on=false;Voice.stopListen();Voice.stopSpeak();
     if(sv.tap){const t=sv.tap;sv.tap=null;t()}
     const d=$('#vo');if(d)d.remove();sv=null}
-  function svStart(){
+  function svStart(first){
     if(!Voice.ok()){toast('Voice is not available here. Update the Relay app or use Chrome.');return}
     if(busy){toast('Wait for the reply to finish first');return}
     if(sv&&sv.on)return;
     try{A&&A.keepOn&&A.keepOn(true);if(A&&A.voiceBg&&localStorage.vbg!=='0')A.voiceBg(true)}catch{}
-    sv={on:true,muted:false,listening:false,idle:false,speaking:false,caption:'',miss:0,err:0,tap:null,say:'',wake:localStorage.wakeOn==='1'&&soloWake(pn).length>0,armed:false,follow:0,ac:null};
+    sv={on:true,muted:false,listening:false,idle:false,speaking:false,caption:'',miss:0,err:0,tap:null,say:'',wake:localStorage.wakeOn==='1'&&soloWake(pn).length>0,armed:false,follow:0,ac:null,first:typeof first==='string'?first:''};
     try{sv.ac=new (window.AudioContext||window.webkitAudioContext)()}catch{}
     const d=document.createElement('div');d.id='vo';d.className='vo';
     d.innerHTML=`<div class="vtop"><b>${esc(cap(pn))}</b></div><div class="vst" id="vst"></div>
@@ -571,15 +572,16 @@ async function chatView(pn){
     while(me.on){
       if(me.muted||busy){me.listening=false;svDraw();await sleep(250);continue}
       me.listening=true;me.caption='';svDraw();
-      let text='';
-      try{text=await Voice.listen(p=>{if(!me.wake||me.armed||Date.now()<me.follow||wakeMatch(p,soloWake(pn))){me.caption='You: '+p;svDraw()}})}
+      let text='',opening=false;
+      if(me.first){text=me.first;me.first='';opening=true}
+      else try{text=await Voice.listen(p=>{if(!me.wake||me.armed||Date.now()<me.follow||wakeMatch(p,soloWake(pn))){me.caption='You: '+p;svDraw()}})}
       catch(e){me.listening=false;if(!me.on)break;const c=String(e);
         if(c==='stop'||c==='aborted')continue;
         if(c==='perm'||c==='9'){toast('Allow the microphone to talk');svClose();return}
         if(['6','7','no-speech','end'].includes(c)){if(me.wake){await sleep(300);continue}if(++me.miss>=3){me.miss=0;me.idle=true;svDraw();await new Promise(r=>me.tap=r);me.idle=false}continue}
         await sleep(800);if(++me.err>=4){toast('Voice input stopped. Check your internet and the Google app.');svClose();return}continue}
       me.listening=false;me.miss=0;me.err=0;
-      if(me.wake&&text.trim()){ // only act when its name was said (or we are inside the follow-up window after a reply)
+      if(me.wake&&text.trim()&&!opening){ // only act when its name was said (or we are inside the follow-up window after a reply)
         const m=wakeMatch(text,soloWake(pn));let cmd;
         if(Date.now()<me.follow)cmd=(m?m.rest:text).trim();
         else if(m)cmd=m.rest.trim();
@@ -600,7 +602,8 @@ async function chatView(pn){
       me.say='';
       if(me.wake&&wakeFollowSec()){me.follow=Date.now()+wakeFollowSec()*1000;setTimeout(()=>{if(sv===me)svDraw()},wakeFollowSec()*1000+80)}else me.follow=0;
       svDraw()}}
-  $('#vc').onclick=svStart;
+  $('#vc').onclick=()=>svStart();
+  try{const ac=localStorage.autocall&&JSON.parse(localStorage.autocall);if(ac&&String(ac.ai).toLowerCase()===String(pn).toLowerCase()){localStorage.removeItem('autocall');setTimeout(()=>svStart(ac.say||''),700)}}catch{}
   const pinI=()=>{$('#pin').textContent=jget('pins',[]).includes(pn)?'★':'☆'};pinI();
   $('#pin').onclick=()=>{let a=jget('pins',[]);if(a.includes(pn)){a=a.filter(x=>x!==pn);toast('Unpinned')}else{a.push(pn);toast('Pinned to the top')}localStorage.pins=JSON.stringify(a);pinI()};
   const spi=()=>{$('#sp').innerHTML=spOn()?ICON.speaker:ICON.speakeroff};spi();
@@ -636,6 +639,7 @@ function settingsView(){
   <div class="sec">Behaviour</div><div class="card" style="padding:4px 16px">
    <button class="row" id="rr"><div class="m"><b>Rule room</b><small>Write extra rules every AI must follow</small></div>›</button>
    <button class="row" id="memb"><div class="m"><b>Memory &amp; saved prompts</b><small>Notes every AI knows about you, and prompts you reuse</small></div>›</button>
+   <button class="row" id="clb"><div class="m"><b>Scheduled calls</b><small>The AI rings you at a set time, even when the app is closed. Also a low-battery wake-up alarm.</small></div>›</button>
    <button class="row" id="tkb"><div class="m"><b>Scheduled asks</b><small>A notification at a set time that sends your question to an AI</small></div>›</button>
    <button class="row" id="vbgb"><div class="m"><b>Voice keeps running in the background</b><small>Lets a voice meeting continue with the screen off or in another app. Shows a notification while it runs.</small></div>${sw('vbg',localStorage.vbg!=='0')}</button>
    <button class="row" id="wkb"><div class="m"><b>Wake names</b><small>${(()=>{const ns=providers.map(p=>wnGet(p.name)[0]).filter(Boolean);if(localStorage.wakeOn==='1'&&(ns.length||wakeNames().length))return 'On: '+esc((ns.length?ns:[wakeNames()[0]]).join(', '));return 'Off. Give each AI a name and a voice call answers only to it'})()}</small></div>›</button>
@@ -659,7 +663,7 @@ function settingsView(){
    <button class="row" id="rl"><div class="m"><b>Reload latest version</b><small>The app updates itself from your relay</small></div>›</button>
    <button class="row" id="lo"><div class="m"><b style="color:var(--bad)">Sign out</b></div></button>
   </div></div>`;
-  $('#bk').onclick=()=>location.hash='#/';$('#rr').onclick=()=>location.hash='#/rules';$('#memb').onclick=()=>location.hash='#/memory';$('#usgb').onclick=usageSheet;$('#dschb').onclick=dsChatsSheet;$('#tkb').onclick=()=>location.hash='#/tasks';$('#wkb').onclick=()=>wakeSheet(()=>settingsView());$('#vcb').onclick=voicesSheet;$('#bub').onclick=backupSheet;$('#rpb').onclick=reportProblem;
+  $('#bk').onclick=()=>location.hash='#/';$('#rr').onclick=()=>location.hash='#/rules';$('#memb').onclick=()=>location.hash='#/memory';$('#usgb').onclick=usageSheet;$('#dschb').onclick=dsChatsSheet;$('#tkb').onclick=()=>location.hash='#/tasks';$('#clb').onclick=()=>location.hash='#/calls';$('#wkb').onclick=()=>wakeSheet(()=>settingsView());$('#vcb').onclick=voicesSheet;$('#bub').onclick=backupSheet;$('#rpb').onclick=reportProblem;
   const tg=(btn,id,key,def)=>{const b=$(btn);if(!b)return;b.onclick=()=>{const on=localStorage[key]===undefined?def:localStorage[key]!=='0';localStorage[key]=on?'0':'1';$(id).classList.toggle('on',!on)}};
   document.querySelectorAll('#thm .chip').forEach(c=>c.onclick=()=>{localStorage.theme=c.dataset.t;applyTheme();settingsView()});
   document.querySelectorAll('#acc .chip').forEach(c=>c.onclick=()=>{localStorage.accent2=c.dataset.a;applyTheme();settingsView()});
@@ -807,6 +811,58 @@ async function tasksView(){
     if(!(A&&A.scheduleTask)){toast('Scheduled asks need the Android app');return}
     const a=tasksList();if(a.length>=15){toast('That is the limit');return}
     const t={id:'t'+Date.now(),ai,prompt:prompt.slice(0,500),time,daily:$('#td').checked,at:nextAt(time)};a.push(t);localStorage.tasks=JSON.stringify(a);schedule(t);askNotif();$('#tq').value='';draw();toast('Scheduled')}}
+/* ---- scheduled calls + low-battery alarm (ring on the phone, even with the app closed) ---- */
+const callsList=()=>jget('calls',[]);
+const DAYN=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+function callPayload(c){const [h,m]=c.time.split(':').map(Number);const o={ai:c.ai,type:'audio',say:c.say||'',label:c.label||('Call from '+cap(c.ai)),on:c.on!==false,days:c.days|0,hour:h,minute:m};if(!o.days)o.at=nextAt(c.time);return JSON.stringify(o)}
+function pushCall(c){try{if(A&&A.scheduleCall)A.scheduleCall(c.id,callPayload(c))}catch{}}
+async function callsView(){
+  try{if(!providers.length)providers=await api('/api/providers')}catch{}
+  const native=!!(A&&A.scheduleCall);
+  const dsel=new Set();
+  const dtxt=d=>!d?'once':d===127?'every day':DAYN.filter((_,i)=>d&(1<<i)).join(' ');
+  const draw=()=>{const now=Date.now();let a=callsList().filter(c=>c.days||!c.once||c.at>now);localStorage.calls=JSON.stringify(a);
+    $('#cl').innerHTML=a.length?a.map((c,i)=>`<div class="row plain">${logo(c.ai,30)}<div class="m"><b style="font-weight:600">${esc(c.time)} · ${esc(dtxt(c.days))} · ${esc(cap(c.ai))}</b><small>${esc((c.say||'Just a call').slice(0,90))}</small></div><button class="ib" data-d="${i}" aria-label="Delete">×</button></div>`).join(''):'<p class="mu" style="padding:12px 0;margin:0">No scheduled calls yet.</p>';
+    $('#cl').querySelectorAll('[data-d]').forEach(b=>b.onclick=()=>{const a=callsList(),c=a.splice(+b.dataset.d,1)[0];try{A&&A.cancelCall&&A.cancelCall(c.id)}catch{}localStorage.calls=JSON.stringify(a);draw()})};
+  const perms=()=>{let p={};try{p=JSON.parse(A.callPerms())}catch{}
+    const row=(k,ok,t)=>`<button class="row" data-pm="${k}"><div class="m"><b>${t}</b><small>${ok?'On':'Off - tap to allow'}</small></div>${ok?'✓':'›'}</button>`;
+    $('#cp').innerHTML=row('notifications',p.notifications!==false,'Notifications')+row('fullScreen',p.fullScreen!==false,'Show the call over the lock screen')+row('unrestricted',!!p.unrestricted,'No battery limits for Relay');
+    $('#cp').querySelectorAll('[data-pm]').forEach(b=>b.onclick=()=>{try{A.openCallSettings(b.dataset.pm)}catch{}})};
+  const sw=(id,on)=>`<span class="sw ${on?'on':''}" id="${id}"></span>`;
+  let bat={};try{bat=A&&A.batteryGet?JSON.parse(A.batteryGet()):{}}catch{}
+  $('#app').innerHTML=`<div class="top"><button class="ib" id="bk" aria-label="Back">${ICON.back}</button><h1>Scheduled calls</h1></div><div class="scroll">
+  <p class="mu" style="margin:0 0 12px">At the time you choose, your phone rings like a call, even with the app closed. Answer it and a voice call with that AI starts. ${native?'':'This needs the latest Relay Android app (install the new APK).'}</p>
+  <div class="card" id="cl" style="padding:4px 16px"></div>
+  <div class="sec" style="margin-top:18px">New call</div>
+  <label class="fld"><span>AI</span><select id="ca" class="in">${providers.map(p=>`<option value="${esc(p.name)}">${esc(p.name)}</option>`).join('')}</select></label>
+  <label class="fld"><span>Time</span><input id="ct" class="in" type="time" value="08:00"></label>
+  <div class="mu" style="font-size:13px;margin:4px 0">Repeat on (none = just once)</div>
+  <div class="chips" id="cd">${DAYN.map((d,i)=>`<button class="chip" data-w="${i}">${d}</button>`).join('')}<button class="chip" id="cdall">Every day</button></div>
+  <label class="fld" style="margin-top:10px"><span>What it says when you answer (optional)</span><textarea id="cs" class="in" style="min-height:70px" placeholder="e.g. Good morning, tell me my schedule and the top news"></textarea></label>
+  <button class="btn" id="cadd">Schedule call</button>
+  <button class="chip" id="ctest" style="margin-top:10px">Test: ring me in 10 seconds</button>
+  <div class="sec" style="margin-top:18px">Make sure it can ring</div><div class="card" id="cp" style="padding:4px 16px"></div>
+  <div class="sec" style="margin-top:18px">Low-battery wake-up alarm</div>
+  <p class="mu" style="margin:0 0 8px;font-size:13px">If the battery is low and you may have slept off, the phone rings until you plug in a charger. Battery now: ${bat.level>=0?bat.level+'%':'unknown'}${bat.charging?' (charging)':''}.</p>
+  <button class="row plain" id="bwb"><div class="m"><b>Watch the battery</b></div>${sw('bw',!!bat.enabled)}</button>
+  <label class="fld"><span>Nudge me at (%)</span><input id="bwarn" class="in" type="number" min="5" max="60" value="${bat.warn||30}"></label>
+  <label class="fld"><span>Ring the alarm at (%)</span><input id="bal" class="in" type="number" min="3" max="40" value="${bat.alarm||15}"></label>
+  <button class="chip" id="bsave">Save battery settings</button> <button class="chip" id="btest">Test the alarm</button></div>`;
+  $('#bk').onclick=()=>location.hash='#/settings';
+  draw();if(native&&A.callPerms)perms();else $('#cp').innerHTML='<p class="mu" style="padding:12px 0;margin:0">Shown in the Android app.</p>';
+  const w=$('#cd');
+  w.querySelectorAll('[data-w]').forEach(b=>b.onclick=()=>{const i=+b.dataset.w;if(dsel.has(i))dsel.delete(i);else dsel.add(i);b.classList.toggle('on',dsel.has(i))});
+  $('#cdall').onclick=()=>{const all=dsel.size<7;w.querySelectorAll('[data-w]').forEach(b=>{const i=+b.dataset.w;if(all)dsel.add(i);else dsel.delete(i);b.classList.toggle('on',all)})};
+  $('#cadd').onclick=()=>{const ai=$('#ca').value,time=$('#ct').value,say=$('#cs').value.trim().slice(0,300);if(!ai||!time){toast('Pick an AI and a time');return}
+    if(!native){toast('Scheduled calls need the latest Relay Android app');return}
+    const a=callsList();if(a.length>=10){toast('That is the limit');return}
+    let days=0;dsel.forEach(i=>days|=1<<i);
+    const c={id:'c'+Date.now(),ai,time,say,days,on:true,once:!days,at:days?0:nextAt(time)};a.push(c);localStorage.calls=JSON.stringify(a);pushCall(c);askNotif();draw();toast('Scheduled for '+time)};
+  $('#ctest').onclick=()=>{if(!native){toast('Needs the latest Relay Android app');return}try{A.testCall($('#ca').value,'audio',$('#cs').value.trim().slice(0,300),10);toast('Ringing in 10 seconds. You can lock the phone.')}catch{toast('Could not start the test')}};
+  $('#bwb').onclick=()=>{const on=!(bat.enabled);bat.enabled=on;const sv=$('#bwb').querySelector('.sw');if(sv)sv.classList.toggle('on',on);saveBat()};
+  const saveBat=()=>{if(!(A&&A.batterySet)){toast('Needs the latest Relay Android app');return}try{A.batterySet(JSON.stringify({enabled:!!bat.enabled,warn:+$('#bwarn').value||30,alarm:+$('#bal').value||15,alarmOn:true,idle:bat.idle||10,mode:bat.mode||'alarm',ai:bat.ai||'',repeat:bat.repeat||10}));toast('Saved')}catch{toast('Could not save')}};
+  $('#bsave').onclick=saveBat;
+  $('#btest').onclick=()=>{try{A&&A.testAlarm&&A.testAlarm()}catch{}}}
 /* ---- voices, backup, report ---- */
 async function voicesSheet(){
   const cfg=await Human.config(),human=localStorage.vengine==='human'&&cfg.enabled,sp=+localStorage.vspeed||1;
@@ -1634,7 +1690,7 @@ document.addEventListener('click',e=>{const b=e.target.closest&&e.target.closest
 window.addEventListener('unhandledrejection',e=>{try{toast(String(e.reason&&e.reason.message||e.reason||'Error').slice(0,120))}catch{}});
 setInterval(()=>{document.querySelectorAll('.wait').forEach(e=>{const t=+e.dataset.t0;if(!t)return;const n=Math.round((Date.now()-t)/1000);e.textContent=n>=8?'still working… '+n+'s':''})},1000);
 setTimeout(()=>{try{if(tok){rescheduleTasks();autoBackup()}}catch{}},1500);
-window.__go0=window.__go;window.__go=()=>{try{const tk=A&&A.takeTask&&A.takeTask();if(tk&&tok){const i=tk.indexOf('\n');localStorage.prefill=tk.slice(i+1);localStorage.autosend='1';const h='#/chat/'+encodeURIComponent(tk.slice(0,i));if(location.hash===h)route();else location.hash=h;return}}catch{}window.__go0&&window.__go0()};
+window.__go0=window.__go;window.__go=()=>{try{const cl=A&&A.takeCall&&A.takeCall();if(cl&&tok){const o=JSON.parse(cl);if(o.ai){localStorage.autocall=JSON.stringify({ai:o.ai,say:o.say||''});const h='#/chat/'+encodeURIComponent(o.ai);if(location.hash===h)route();else location.hash=h;return}}}catch{}try{const tk=A&&A.takeTask&&A.takeTask();if(tk&&tok){const i=tk.indexOf('\n');localStorage.prefill=tk.slice(i+1);localStorage.autosend='1';const h='#/chat/'+encodeURIComponent(tk.slice(0,i));if(location.hash===h)route();else location.hash=h;return}}catch{}window.__go0&&window.__go0()};
 setTimeout(()=>{const e=document.getElementById('hi');if(e)e.remove()},1500);
 </script>
 </body>

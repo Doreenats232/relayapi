@@ -27,10 +27,10 @@ function config() {
   };
 }
 
-const hits = new Map(); // simple per-user limit: 40 voice requests a minute
+const hits = new Map(); // simple per-user limit: 150 voice requests a minute
 function allowed(uid) {
   const now = Date.now(), a = (hits.get(uid) || []).filter(t => now - t < 60000);
-  if (a.length >= 40) return false;
+  if (a.length >= 150) return false;
   a.push(now); hits.set(uid, a);
   if (hits.size > 500) for (const [k, v] of hits) if (!v.some(t => now - t < 60000)) hits.delete(k);
   return true;

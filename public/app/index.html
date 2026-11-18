@@ -1282,38 +1282,51 @@ const Voice={n:0,pend:{},L:null,rec:null,
   stopSpeak(){Human.stop();try{if(A)A.stopSpeak();else if(window.speechSynthesis)speechSynthesis.cancel()}catch{}const p=Voice.pend;Voice.pend={};Object.values(p).forEach(f=>f())}
 };
 const Human={cfg:null,cur:null,curRes:null,epoch:0,dead:0,fails:0,
-  async config(){if(Human.cfg)return Human.cfg;try{Human.cfg=await api('/api/tts/config')}catch{Human.cfg={enabled:false,voices:[],hint:'Could not reach your relay'}}return Human.cfg},
+  async config(){if(Human.cfg)return Human.cfg;
+    for(let k=0;k<3;k++){try{const c=await api('/api/tts/config');Human.cfg=c;try{localStorage.hvcfg=JSON.stringify(c)}catch{}return c}catch{await new Promise(r=>setTimeout(r,600))}}
+    let c=null;try{c=JSON.parse(localStorage.hvcfg)}catch{} // a failed load is never remembered, so the next sentence tries again
+    return c||{enabled:false,voices:[],hint:'Could not reach your relay'}},
   chunks(t){t=String(t).replace(/https?:\/\/\S+/g,'link').replace(/\s+/g,' ').trim().slice(0,3000);
     const sent=t.match(/[^.!?\n]+[.!?]*\s*/g)||[t],out=[];let cur='';
     for(const x of sent){const lim=out.length?300:150;if(cur&&(cur+x).length>lim){out.push(cur.trim());cur=x}else cur+=x}
     if(cur.trim())out.push(cur.trim());return out.slice(0,12)},
-  async fetchAudio(text,voice){const r=await fetch('/api/tts',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+tok},body:JSON.stringify({text,voice})});
-    if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(j.error||'Voice error '+r.status)}
-    return URL.createObjectURL(await r.blob())},
+  async fetchAudio(text,voice){let last;
+    for(let k=0;k<3;k++){
+      try{const r=await fetch('/api/tts',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+tok},body:JSON.stringify({text,voice})});
+        if(r.ok)return URL.createObjectURL(await r.blob());
+        const j=await r.json().catch(()=>({}));last=new Error(j.error||'Voice error '+r.status);
+        if(r.status===400||r.status===401||r.status===503)break;
+        await new Promise(z=>setTimeout(z,r.status===429?2500:500*(k+1)))}
+      catch(e){last=e;await new Promise(z=>setTimeout(z,500*(k+1)))}}
+    throw last},
   play(url){return new Promise((res,rej)=>{const a=new Audio(url);Human.cur=a;
     const done=()=>{Human.cur=null;Human.curRes=null;URL.revokeObjectURL(url)};
     Human.curRes=()=>{done();res()};
     a.playbackRate=+localStorage.vspeed||1;
     a.onended=()=>{done();res()};a.onerror=()=>{done();rej(new Error('audio'))};
     const p=a.play();if(p&&p.catch)p.catch(e=>{done();rej(e)})})},
-  voiceFor(v){const c=Human.cfg;if(!c||!c.voices.length)return '';const sv=v&&v.n?localStorage['hv:'+v.n]:'';
-    return sv&&c.voices.some(x=>x.id===sv)?sv:c.voices[((v&&v.idx)||0)%c.voices.length].id},
+  voiceFor(v){let c=Human.cfg;if(!c){try{c=JSON.parse(localStorage.hvcfg)}catch{}}
+    const sv=v&&v.n?localStorage['hv:'+v.n]:'',vs=(c&&c.voices)||[];
+    if(sv&&(!vs.length||vs.some(x=>x.id===sv)))return sv; // keep the voice you picked even if the list could not load
+    return vs.length?vs[((v&&v.idx)||0)%vs.length].id:''},
   async speak(text,v){
     const my=++Human.epoch,cfg=await Human.config();
     if(!cfg.enabled)return Voice.speakPhone(text,v);
     const voice=Human.voiceFor(v),parts=Human.chunks(text);if(!parts.length)return;
     let next=Human.fetchAudio(parts[0],voice);next.catch(()=>{});
     for(let i=0;i<parts.length;i++){
-      let url;try{url=await next}catch(e){return Human.fallback(parts.slice(i).join(' '),v,my,e)}
-      if(my!==Human.epoch){URL.revokeObjectURL(url);return}
+      let url=null,err=null;try{url=await next}catch(e){err=e}
+      if(my!==Human.epoch){if(url)URL.revokeObjectURL(url);return}
       if(i+1<parts.length){next=Human.fetchAudio(parts[i+1],voice);next.catch(()=>{})}
-      try{await Human.play(url)}catch(e){return Human.fallback(parts.slice(i).join(' '),v,my,e)}
+      if(url){try{await Human.play(url)}catch(e){err=e}}
       if(my!==Human.epoch)return;
-      Human.fails=0}
+      if(!err){Human.fails=0;continue}
+      await Human.fallback(parts[i],v,my,err); // only the sentence that failed uses the phone voice; the next one tries the human voice again
+      if(my!==Human.epoch)return}
   },
   async fallback(text,v,my,e){
     if(my!==Human.epoch)return;
-    if(++Human.fails>=2){Human.dead=Date.now()+120000;Human.fails=0;toast('Human voice is not working here, so the phone voice is used. '+String(e&&e.message||'').slice(0,80))}
+    if(++Human.fails>=3){Human.dead=Date.now()+15000;Human.fails=0;toast('Human voice is not working here, so the phone voice is used. '+String(e&&e.message||'').slice(0,80))}
     return Voice.speakPhone(text,v)},
   stop(){Human.epoch++;const r=Human.curRes;try{Human.cur&&Human.cur.pause()}catch{}Human.cur=null;if(r)r()}
 };

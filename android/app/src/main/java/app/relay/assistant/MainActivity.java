@@ -83,6 +83,7 @@ public class MainActivity extends Activity {
     private String pendingCall = null;
     private android.webkit.PermissionRequest camReq = null;
     private boolean wantVoiceBg = false;
+    private boolean wantWake = false;
     private Uri camUri = null;
     private LinearLayout lockView;
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -448,6 +449,21 @@ public class MainActivity extends Activity {
             } catch (Exception ignored) { }
         }
 
+        /** Listens for AI names while Relay is closed. json: {"on":true,"map":{"miles":["Miles","Myles"],...}} (AI name -> spoken names) */
+        @JavascriptInterface public void wakeBgSet(final String json) {
+            ui.post(() -> {
+                try {
+                    JSONObject o = new JSONObject(json);
+                    getSharedPreferences(WakeService.PREFS, MODE_PRIVATE).edit().putString("json", json).apply();
+                    if (!o.optBoolean("on", false)) { wantWake = false; stopService(new Intent(MainActivity.this, WakeService.class)); return; }
+                    if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) startForegroundService(new Intent(MainActivity.this, WakeService.class));
+                    else { wantWake = true; requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 12); }
+                } catch (Exception ignored) { }
+            });
+        }
+
+        @JavascriptInterface public boolean wakeBgRunning() { return WakeService.running; }
+
         @JavascriptInterface public void voiceBg(final boolean on) {
             ui.post(() -> {
                 if (!on) { wantVoiceBg = false; stopService(new Intent(MainActivity.this, VoiceService.class)); return; }
@@ -585,6 +601,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onPause() {
         fg = false;
+        WakeService.paused = false;
         if (!authing) pausedAt = System.currentTimeMillis();
         super.onPause();
     }
@@ -593,6 +610,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         fg = true;
+        WakeService.paused = true;
         if (lockOn && !authing && (!unlocked || System.currentTimeMillis() - pausedAt > 30000)) lockNow();
     }
 
@@ -731,6 +749,10 @@ public class MainActivity extends Activity {
             return;
         }
         if (code == 77) return;
+        if (code == 12) {
+            if (wantWake && res.length > 0 && res[0] == PackageManager.PERMISSION_GRANTED) { wantWake = false; try { startForegroundService(new Intent(this, WakeService.class)); } catch (Exception ignored) { } }
+            return;
+        }
         if (wantVoiceBg && res.length > 0 && res[0] == PackageManager.PERMISSION_GRANTED && perms.length > 0 && android.Manifest.permission.RECORD_AUDIO.equals(perms[0])) {
             wantVoiceBg = false;
             try { startForegroundService(new Intent(this, VoiceService.class)); } catch (Exception ignored) { }

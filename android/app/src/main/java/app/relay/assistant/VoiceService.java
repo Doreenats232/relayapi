@@ -13,6 +13,7 @@ import android.os.PowerManager;
 
 /** Keeps a voice meeting alive when the screen is off or Relay is in the background. */
 public class VoiceService extends Service {
+    static volatile boolean running = false;
     private PowerManager.WakeLock wl;
 
     @Override
@@ -33,6 +34,7 @@ public class VoiceService extends Service {
             if (Build.VERSION.SDK_INT >= 30) startForeground(77, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE);
             else startForeground(77, n);
         } catch (Exception e) { stopSelf(); return START_NOT_STICKY; }
+        running = true;
         if (wl == null) {
             PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
             wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "relay:voice");
@@ -45,6 +47,7 @@ public class VoiceService extends Service {
 
     @Override
     public void onDestroy() {
+        running = false;
         try { if (wl != null && wl.isHeld()) wl.release(); } catch (Exception ignored) { }
         super.onDestroy();
     }

@@ -186,7 +186,9 @@ app.post('/api/tts', auth, async (req, res) => {
   if (!tts.config().enabled) return res.status(503).json({ error: tts.config().hint || 'Human voices are not set up' });
   if (!tts.allowed(req.uid)) return res.status(429).json({ error: 'Too many voice requests. Wait a moment.' });
   try {
-    const audio = await tts.synth(text, String((req.body || {}).voice || ''));
+    let audio;
+    try { audio = await tts.synth(text, String((req.body || {}).voice || '')); }
+    catch (e1) { await new Promise(r => setTimeout(r, 400)); audio = await tts.synth(text, String((req.body || {}).voice || '')); } // the free voice service drops a request now and then: try once more before giving up
     if (!audio || audio.length < 400) throw new Error('empty audio');
     res.set({ 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-store' });
     res.send(audio);

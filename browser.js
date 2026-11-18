@@ -302,6 +302,7 @@ async function doAsk(p, prompt, dbg, conv, retry = true, info = {}) {
     await shot(warm ? '1. Open chat' : '1. Page ready');
     selInfo = await box.evaluate(e => e.tagName.toLowerCase() + (e.id ? '#' + e.id : '') + (e.className && typeof e.className == 'string' ? '.' + e.className.trim().split(/\s+/).slice(0, 2).join('.') : '') + (e.placeholder ? ' placeholder="' + e.placeholder + '"' : ''));
     step('Text box found', true, `using ${selInfo}`);
+    if (!cl(p.inputSel) && /placeholder="[^"]*(e-?mail|password|phone|verification|sign in|log in|username)/i.test(selInfo)) { step('Login wall', false, 'the page is asking for a login, not a chat message'); throw new Error('This site is showing a login form (the box it found is ' + (selInfo.match(/placeholder="([^"]*)"/) || [, 'a login field'])[1] + '), so it needs you to log in again. Use "Log in" on this provider to save a logged-in session.'); }
     if (info && info.files && info.files.length) { // files the user attached in the app: put them in the site's own upload input before typing
       try {
         const fi = page.locator('input[type="file"]');

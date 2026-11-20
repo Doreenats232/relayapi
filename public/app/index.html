@@ -247,6 +247,7 @@ button:active:not(:disabled){transform:scale(.97)}
 .crsws{display:flex;gap:10px;flex-wrap:wrap}.crsws button{width:34px;height:34px;border-radius:50%;border:2px solid transparent;padding:0}.crsws button.on{border-color:var(--tx);box-shadow:0 0 0 2px var(--ink) inset}
 
 /* wake name */
+.vopts{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:6px 0 0}.vopts .chip{font-size:13px;padding:6px 14px;opacity:.85}
 .vwk{margin:6px auto 0;font-size:13px;padding:6px 14px;opacity:.85}
 .vo.st-wait .vcore{opacity:.5;filter:saturate(.6);animation:none}.vo.st-wait .vglow{opacity:.35}
 
@@ -563,13 +564,14 @@ async function chatView(pn){
     if(busy){toast('Wait for the reply to finish first');return}
     if(sv&&sv.on)return;
     try{A&&A.keepOn&&A.keepOn(true);if(A&&A.voiceBg&&localStorage.vbg!=='0')A.voiceBg(true)}catch{}
-    sv={on:true,muted:false,listening:false,idle:false,speaking:false,caption:'',miss:0,err:0,tap:null,say:'',wake:localStorage.wakeOn==='1'&&soloWake(pn).length>0,armed:false,follow:0,ac:null,first:typeof first==='string'?first:'',video:!!video&&!!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia),face:'user',stream:null,camOff:false};
+    sv={on:true,muted:false,listening:false,idle:false,speaking:false,caption:'',miss:0,err:0,tap:null,say:'',wake:localStorage.wakeOn==='1'&&soloWake(pn).length>0,armed:false,follow:0,ac:null,first:typeof first==='string'?first:'',video:!!video&&!!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia),face:'user',stream:null,camOff:false,talk:localStorage.talkover!=='0',carry:''};
     try{sv.ac=new (window.AudioContext||window.webkitAudioContext)()}catch{}
     const d=document.createElement('div');d.id='vo';d.className='vo';
     d.innerHTML=`<div class="vtop"><b>${esc(cap(pn))}${sv.video?' · video':''}</b></div>${sv.video?'<video id="vvid" class="vvid" autoplay playsinline muted></video>':''}<div class="vst" id="vst"></div>
     <button class="vorb" id="vorb" aria-label="Tap to interrupt or talk"><span class="vglow"></span><span class="vcore">${ICON.spark}</span></button>
     <div class="vcap" id="vcap"></div>
     <button class="chip vwk" id="vwake"></button>
+    <div class="vopts"><button class="chip" id="vto"></button><button class="chip" id="vsp"></button></div>
     <div class="vpeople"><div class="vp"><div class="av">${logo(pn,34)}</div><small>${esc(cap(pn))}</small></div></div>
     <div class="vbtns"><button class="ib big" id="vmute" aria-label="Mute">${ICON.mic}</button>${sv.video?`<button class="ib big" id="vflip" aria-label="Flip camera">${ICON.cam}</button><button class="chip" id="vcoff" style="align-self:center">Camera on</button>`:''}<button class="ib big end" id="vend" aria-label="End">${ICON.x}</button></div>`;
     document.body.appendChild(d);
@@ -578,7 +580,11 @@ async function chatView(pn){
     $('#vmute').onclick=()=>{sv.muted=!sv.muted;if(sv.muted)Voice.stopListen();svDraw()};
     $('#vend').onclick=svClose;
     if(sv.video){sv.camP=svCam();$('#vflip').onclick=()=>{sv.face=sv.face==='user'?'environment':'user';svCam()};$('#vcoff').onclick=()=>{sv.camOff=!sv.camOff;if(sv.stream)sv.stream.getTracks().forEach(t=>t.enabled=!sv.camOff);$('#vcoff').textContent=sv.camOff?'Camera off':'Camera on'}}
-    $('#vwake').onclick=()=>wakeSheet(en=>{if(!sv)return;sv.wake=en&&soloWake(pn).length>0;sv.follow=0;sv.armed=false;Voice.stopListen();svDraw()},cap(pn),pn);
+    const spds=[0.85,1,1.25,1.5,1.75],spLab=()=>'Speed '+((+localStorage.vspeed||1))+'x',toLab=()=>{$('#vto').textContent=sv&&sv.wake?'Talk over: off with wake name':'Talk over: '+(sv&&sv.talk?'On':'Off')};
+    $('#vsp').textContent=spLab();toLab();
+    $('#vto').onclick=()=>{sv.talk=!sv.talk;localStorage.talkover=sv.talk?'1':'0';toLab();toast(sv.talk?'You can talk over the AI. Headphones work best.':'Talk over is off')};
+    $('#vsp').onclick=()=>{const c=+localStorage.vspeed||1,i=spds.findIndex(x=>x>c+0.001);const n=spds[i<0?0:i];localStorage.vspeed=String(n);$('#vsp').textContent=spLab();try{if(Human.cur)Human.cur.playbackRate=n}catch{}};
+    $('#vwake').onclick=()=>wakeSheet(en=>{if(!sv)return;sv.wake=en&&soloWake(pn).length>0;sv.follow=0;sv.armed=false;Voice.stopListen();toLab();svDraw()},cap(pn),pn);
     svDraw();svLoop()}
   async function svLoop(){
     const me=sv;
@@ -587,6 +593,7 @@ async function chatView(pn){
       me.listening=true;me.caption='';svDraw();
       let text='',opening=false;
       if(me.first){text=me.first;me.first='';opening=true}
+      else if(me.carry){text=me.carry;me.carry='';opening=true}
       else try{text=await Voice.listen(p=>{if(!me.wake||me.armed||Date.now()<me.follow||wakeMatch(p,soloWake(pn))){me.caption='You: '+p;svDraw()}})}
       catch(e){me.listening=false;if(!me.on)break;const c=String(e);
         if(c==='stop'||c==='aborted')continue;
@@ -612,7 +619,7 @@ async function chatView(pn){
       if(!me.on)break;
       const last=msgs[msgs.length-1];
       if(last&&last.err){me.caption=String(last.content).slice(0,140);svDraw();await sleep(2500)}
-      else if(me.say){me.speaking=true;me.caption=cap(pn)+': '+me.say;svDraw();await Voice.speak(me.say,{p:1,r:1,idx:soloIdx(pn),n:pn});me.speaking=false}
+      else if(me.say){me.speaking=true;me.caption=cap(pn)+': '+me.say;svDraw();await talkOverSpeak(me,me.say,{p:1,r:1,idx:soloIdx(pn),n:pn},p=>{me.caption='You: '+p;svDraw()});me.speaking=false}
       me.say='';
       if(me.wake&&wakeFollowSec()){me.follow=Date.now()+wakeFollowSec()*1000;setTimeout(()=>{if(sv===me)svDraw()},wakeFollowSec()*1000+80)}else me.follow=0;
       svDraw()}}
@@ -1281,6 +1288,28 @@ const Voice={n:0,pend:{},L:null,rec:null,
     u.onend=u.onerror=()=>{delete Voice.pend[id];res()};speechSynthesis.speak(u)})},
   stopSpeak(){Human.stop();try{if(A)A.stopSpeak();else if(window.speechSynthesis)speechSynthesis.cancel()}catch{}const p=Voice.pend;Voice.pend={};Object.values(p).forEach(f=>f())}
 };
+/* talk over the AI: listen while it speaks; real speech from you stops it, its own voice coming back through the speaker is ignored */
+const svNorm=t=>String(t||'').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim();
+const BARGE_STOP=/^(stop|wait|hold on|pause|enough|shut up|be quiet|quiet|ok stop|okay stop|no stop|cancel)\b/;
+function svEcho(p,said){const n=svNorm(p);if(!n)return true;if(said.text.includes(n))return true;const w=n.split(' ');if(w.length<3)return false;let hit=0;w.forEach(x=>{if(said.set.has(x))hit++});return hit/w.length>=.6}
+async function talkOverSpeak(me,say,voice,onCut){
+  const sp=Voice.speak(say,voice);
+  if(!me.talk||me.wake||me.muted||!Voice.ok()){await sp;return}
+  const said={text:svNorm(say)};said.set=new Set(said.text.split(' '));
+  let done=false,cut=false,last='';
+  const loop=(async()=>{
+    while(me.on&&!done&&!cut){
+      try{const t=await Voice.listen(p=>{
+          if(cut||done||me.muted)return;
+          const n=svNorm(p);if(!n||svEcho(p,said))return;
+          if(n.split(' ').length>=2||BARGE_STOP.test(n)){cut=true;last=p;Voice.stopSpeak();onCut&&onCut(p)}else last=p});
+        if(cut)return t}
+      catch(e){if(done||cut)return '';await sleep(200)}}
+    return ''})();
+  await sp;done=true;
+  if(!cut){Voice.stopListen();await loop;return}
+  const t=await loop;me.carry=String(t||last||'').trim();
+  const n=svNorm(me.carry);if(n&&n.split(' ').length<=2&&BARGE_STOP.test(n))me.carry=''} // a bare "stop" just makes it quiet and is not sent
 const Human={cfg:null,cur:null,curRes:null,epoch:0,dead:0,fails:0,
   async config(){if(Human.cfg)return Human.cfg;
     for(let k=0;k<3;k++){try{const c=await api('/api/tts/config');Human.cfg=c;try{localStorage.hvcfg=JSON.stringify(c)}catch{}return c}catch{await new Promise(r=>setTimeout(r,600))}}

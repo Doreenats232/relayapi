@@ -470,8 +470,8 @@ async function chatView(pn){
   ta.oninput=()=>{ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,140)+'px'};
 
   function bubble(m,i){
-    if(m.pending&&!m.content)return `<div class="who" style="color:var(--mu)">${logo(pn,18)}<span>${esc(cap(pn))}</span></div><div class="msg assistant"><span class="typing"><i></i><i></i><i></i></span><small class="wait" data-t0="${m.t0||''}" style="color:var(--mu);margin-left:10px"></small></div>`;
-    let h=(m.role==='assistant'&&!m.err?`<div class="who" style="color:var(--mu)">${logo(pn,18)}<span>${esc(cap(pn))}</span></div>`:'')+`<div class="msg ${m.role}${m.err?' err':''}" data-i="${i}">${m.role==='assistant'&&!m.err?md(m.content):esc(m.content)}</div>`;
+    if(m.pending&&!m.content)return `<div class="who" style="color:var(--mu)">${logo(m.via||pn,18)}<span>${esc(cap(m.via||pn))}${m.via?' (backup)':''}</span></div><div class="msg assistant"><span class="typing"><i></i><i></i><i></i></span><small class="wait" data-t0="${m.t0||''}" style="color:var(--mu);margin-left:10px"></small></div>`;
+    let h=(m.role==='assistant'&&!m.err?`<div class="who" style="color:var(--mu)">${logo(m.via||pn,18)}<span>${esc(cap(m.via||pn))}${m.via?' (backup, '+esc(cap(pn))+' did not answer)':''}</span></div>`:'')+`<div class="msg ${m.role}${m.err?' err':''}" data-i="${i}">${m.role==='assistant'&&!m.err?md(m.content):esc(m.content)}</div>`;
     if(m.role==='user'&&!busy&&i===msgs.map(x=>x.role).lastIndexOf('user'))h+=`<div class="mact" style="justify-content:flex-end"><button data-ed="${i}">Edit</button></div>`;
     if(m.role==='assistant'&&!m.pending&&!m.err&&m.content)h+=`<div class="mact"><button data-cp="${i}">Copy</button>${i===msgs.length-1?'<button data-rt="1">Retry</button>':''}</div>`;
     if(m.role==='assistant'&&m.err&&!busy&&i===msgs.length-1)h+=`<div class="mact"><button data-rt="1">Try again</button></div>`;
@@ -513,11 +513,12 @@ async function chatView(pn){
     const sendFiles=att;att=[];drawFiles();
     ta.value='';localStorage.removeItem('dr:'+pn);ta.style.height='auto';busy=true;$('#sd').disabled=true;Voice.stopSpeak();askNotif();
     msgs.push({role:'user',content:text+(sendFiles.length?'\n📎 '+sendFiles.map(f=>f.name).join(', '):'')});const me={role:'assistant',content:'',pending:true,t0:Date.now()};msgs.push(me);draw();
-    try{
+    let aborted=false;
+    const ask=async(mdl)=>{
       const hist=msgs.filter(m=>!m.pending&&!m.err).map(m=>({role:m.role,content:m.content})).slice(-40);
-      const sys=sysPrompt(pn)+(sv&&sv.on?' The User is speaking to you out loud and your reply will be read aloud, so answer briefly and naturally in plain sentences, with no lists, markdown or code.':''),body={model:pn,messages:(sys?[{role:'system',content:sys}]:[]).concat(hist),stream:true};if(sendFiles.length)body.files=sendFiles;
+      const sys=sysPrompt(pn)+(sv&&sv.on?' The User is speaking to you out loud and your reply will be read aloud, so answer briefly and naturally in plain sentences, with no lists, markdown or code.':''),body={model:mdl,messages:(sys?[{role:'system',content:sys}]:[]).concat(hist),stream:true};if(sendFiles.length)body.files=sendFiles;
       const r=await fetch('/api/playground',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+tok},body:JSON.stringify(body)});
-      if(r.status===401){logout(true);return}
+      if(r.status===401){logout(true);aborted=true;return}
       if(!(r.headers.get('content-type')||'').includes('event-stream')){const j=await r.json().catch(()=>({}));throw new Error((j.error&&(j.error.message||j.error))||'Error '+r.status)}
       const rd=r.body.getReader(),dec=new TextDecoder();let buf='';
       for(;;){const {done,value}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});let i;
@@ -527,11 +528,22 @@ async function chatView(pn){
       if(typeof j.relay_replace==='string'){me.content=j.relay_replace;if(cur===pn)draw();continue}
           const t=j.choices&&j.choices[0]&&j.choices[0].delta&&j.choices[0].delta.content;
           if(t&&cur===pn){me.content+=t;draw()}else if(t)me.content+=t}}
-      delete me.pending;if(!me.content.trim()){me.content='No reply came back. Try again, or check the site is still signed in.';me.err=true;useStat(pn,false,'No reply')}else{notifyDone(cap(pn),me.content);useStat(pn,true)}
-    }catch(e){delete me.pending;me.content=e.message;me.err=true;useStat(pn,false,e.message)}
+    };
+    try{
+      try{await ask(pn);if(aborted)return;if(!me.content.trim())throw new Error('No reply came back. Try again, or check the site is still signed in.')}
+      catch(e){
+        if(!providers.length)try{providers=await api('/api/providers')}catch{}
+        const fb=fallbackFor(pn);
+        if(aborted||!fb)throw e;
+        useStat(pn,false,e.message);me.content='';me.via=fb;if(cur===pn)draw();toast(cap(pn)+' did not answer. Trying '+cap(fb)+' instead.');
+        try{await ask(fb);if(aborted)return;if(!me.content.trim())throw new Error('No reply came back')}
+        catch(e2){me.via='';throw new Error(cap(pn)+': '+e.message+'  |  '+cap(fb)+': '+e2.message)}
+      }
+      delete me.pending;notifyDone(cap(me.via||pn),me.content);useStat(me.via||pn,true,'',Date.now()-me.t0)
+    }catch(e){delete me.pending;me.content=e.message;me.err=true;me.via='';useStat(pn,false,e.message)}
     busy=false;store(pn,msgs);
     if(sv&&sv.on&&!me.err&&me.content)sv.say=extract(me.content).text;
-    else if(spOn()&&!me.err&&me.content)Voice.speak(extract(me.content).text,{p:1,r:1,idx:soloIdx(pn),n:pn});
+    else if(spOn()&&!me.err&&me.content)Voice.speak(extract(me.content).text,{p:1,r:1,idx:soloIdx(me.via||pn),n:me.via||pn});
     if(cur===pn){const sd=$('#sd');if(sd)sd.disabled=false;draw();
       if(phoneOn()&&!askFirst()&&!me.err){const as=actionsOf(me.content);me.done={};as.forEach((a,k)=>{if(!SCREEN.has(a.action))me.done[k]=runAction(a)});store(pn,msgs);draw()}}
   }
@@ -619,7 +631,7 @@ async function chatView(pn){
       if(!me.on)break;
       const last=msgs[msgs.length-1];
       if(last&&last.err){me.caption=String(last.content).slice(0,140);svDraw();await sleep(2500)}
-      else if(me.say){me.speaking=true;me.caption=cap(pn)+': '+me.say;svDraw();await talkOverSpeak(me,me.say,{p:1,r:1,idx:soloIdx(pn),n:pn},p=>{me.caption='You: '+p;svDraw()});me.speaking=false}
+      else if(me.say){me.speaking=true;me.caption=cap(pn)+': '+me.say;svDraw();await talkOverSpeak(me,me.say,{p:1,r:1,idx:soloIdx((msgs[msgs.length-1]&&msgs[msgs.length-1].via)||pn),n:(msgs[msgs.length-1]&&msgs[msgs.length-1].via)||pn},p=>{me.caption='You: '+p;svDraw()});me.speaking=false}
       me.say='';
       if(me.wake&&wakeFollowSec()){me.follow=Date.now()+wakeFollowSec()*1000;setTimeout(()=>{if(sv===me)svDraw()},wakeFollowSec()*1000+80)}else me.follow=0;
       svDraw()}}
@@ -669,7 +681,7 @@ function settingsView(){
    <button class="row" id="bub"><div class="m"><b>Backup &amp; restore</b><small>Keep your chats, notes and settings safe</small></div>›</button>
    <button class="row" id="rpb"><div class="m"><b>Report a problem</b><small>Shares a short report you can send me</small></div>›</button><div class="mu" style="text-align:center;font-size:12px;margin:14px 0 4px">App version ${esc(BUILD)}</div>
    <button class="row" id="dschb"><div class="m"><b>DeepSeek chats</b><small>See and delete the chats on your DeepSeek account</small></div>›</button>
-   <button class="row" id="usgb"><div class="m"><b>Usage</b><small>Replies, errors and sign-in problems per AI</small></div>›</button>
+   <button class="row" id="usgb"><div class="m"><b>AI status</b><small>Which AIs are working, slow or signed out, and a backup AI for each</small></div>›</button>
    ${A?`<button class="row" id="pcb"><div class="m"><b>Let the AI control my phone</b><small>Open apps, set alarms, call, text, search</small></div>${sw('pc',phoneOn())}</button>
    <button class="row" id="pab"><div class="m"><b>Ask before it acts</b><small>Show a Run button for each action</small></div>${sw('pa',askFirst())}</button>
    <button class="row" id="scb"><div class="m"><b>Screen control (accessibility)</b><small>Lets the AI read the screen and tap, type and scroll in other apps. Every step needs your Run tap. What it reads is sent to the AI site.</small></div>${sw('sc',ctlLive())}</button>
@@ -728,7 +740,7 @@ function notifyDone(t,x){try{if(A&&A.notifyDone)A.notifyDone(t,x)}catch{}}
 const jget=(k,d)=>{try{const v=JSON.parse(localStorage[k]);return v==null?d:v}catch{return d}};
 const memNotes=()=>jget('mem',[]),savedPrompts=()=>jget('sp',[]);
 function memoryText(){const m=memNotes();return m.length?'Shared notes about the user (use them only when relevant, and never mention that you were given notes):\n'+m.map(x=>'- '+x).join('\n'):''}
-function useStat(n,ok,err){const u=jget('use',{}),x=u[n]||{ok:0,err:0};if(ok)x.ok++;else{x.err++;x.lastErr=String(err||'').slice(0,160)}x.last=Date.now();u[n]=x;localStorage.use=JSON.stringify(u)}
+function useStat(n,ok,err,ms){const u=jget('use',{}),x=u[n]||{ok:0,err:0};if(ok){x.ok++;if(ms>0)x.ms=x.ms?Math.round(x.ms*.7+ms*.3):Math.round(ms)}else{x.err++;x.lastErr=String(err||'').slice(0,160)}x.recent=((x.recent||'')+(ok?'o':'x')).slice(-10);x.last=Date.now();u[n]=x;localStorage.use=JSON.stringify(u)}
 function copyText(t){try{if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(()=>toast('Copied'),()=>fb())}else fb()}catch{fb()}
   function fb(){const e=document.createElement('textarea');e.value=t;e.style.position='fixed';e.style.opacity='0';document.body.appendChild(e);e.select();try{document.execCommand('copy');toast('Copied')}catch{toast('Could not copy')}e.remove()}}
 function dsChatsSheet(){const ds=providers.filter(p=>/(^|\.)deepseek\.com$/.test((()=>{try{return new URL(p.url).hostname}catch{return''}})()));
@@ -761,10 +773,25 @@ function dsSheet(p){const S={chats:[],cursor:'',more:false,sel:new Set(),err:'',
   async function del(ids){if(!confirm('Delete '+ids.length+' chat'+(ids.length>1?'s':'')+' from your DeepSeek account? This cannot be undone.'))return;
     try{const r=await api(base+'/delete','POST',{ids});S.chats=S.chats.filter(c=>!r.deleted.includes(c.id));r.deleted.forEach(i=>S.sel.delete(i));toast(r.deleted.length+' deleted'+(r.failed.length?', '+r.failed.length+' failed':''));S.err=r.failed.length?r.failed[0].error:''}catch(e){S.err=e.message}list()}
   load(true)}
-function usageSheet(){const u=jget('use',{}),names=Object.keys(u);
+const fallbackFor=n=>{const f=localStorage['fb:'+n];if(!f||f===n)return '';const p=providers.find(x=>x.name===f);return p&&!p.sessionExpired&&p.hasSession!==false?f:''};
+function aiState(p,x){
+  if(p&&p.sessionExpired)return['Signed out','#f87171','Log in to this AI again on the website tab'];
+  if(p&&p.hasSession===false)return['Not signed in','#9aa0b4',''];
+  const r=(x&&x.recent)||'',bad=(r.slice(-3).match(/x/g)||[]).length;
+  if(x&&x.lastErr&&bad>=2)return['Failing','#fb923c','Last error: '+x.lastErr];
+  if(x&&x.ms>45000)return['Slow','#facc15','about '+Math.round(x.ms/1000)+' s per reply'];
+  if(!x||!(x.ok+x.err))return['No replies yet','#9aa0b4',''];
+  return['Working','#4ade80',x.ms?'about '+Math.round(x.ms/1000)+' s per reply':''];
+}
+async function usageSheet(){
+  try{providers=await api('/api/providers')}catch{}
+  const u=jget('use',{}),names=[...new Set(providers.map(p=>p.name).concat(Object.keys(u)))];
   const ago=t=>{const m=Math.round((Date.now()-t)/60000);return m<1?'just now':m<60?m+' min ago':m<1440?Math.round(m/60)+' h ago':Math.round(m/1440)+' d ago'};
-  const rows=names.length?names.map(n=>{const x=u[n];return `<div class="row plain">${logo(n,30)}<div class="m"><b>${esc(cap(n))}</b><small>${x.ok} replies · ${x.err} errors · last used ${ago(x.last)}${x.lastErr?'<br>Last error: '+esc(x.lastErr)+(authLike(x.lastErr)?' (sign in again)':''):''}</small></div></div>`}).join(''):'<p class="mu">No messages yet.</p>';
-  const v=sheet(`<h2>Usage</h2>${rows}<button class="btn alt" id="ur" style="margin-top:12px">Reset stats</button>`);
+  const rows=names.length?names.map(n=>{const x=u[n],p=providers.find(q=>q.name===n),[lab,col,det]=aiState(p,x);
+    const opts='<option value="">None</option>'+providers.filter(q=>q.name!==n).map(q=>`<option value="${esc(q.name)}"${localStorage['fb:'+n]===q.name?' selected':''}>${esc(cap(q.name))}</option>`).join('');
+    return `<div class="row plain" style="align-items:flex-start">${logo(n,30)}<div class="m"><b>${esc(cap(n))} <span style="color:${col};font-size:13px;font-weight:600">● ${lab}</span></b><small>${x?x.ok+' replies · '+x.err+' errors · last used '+ago(x.last):'Not used yet'}${det?'<br>'+esc(det):''}</small><label style="display:block;margin-top:6px;font-size:13px;color:var(--mu)">If it fails, use <select class="in" data-fb="${esc(n)}" style="width:auto;display:inline-block;padding:4px 8px">${opts}</select></label></div></div>`}).join(''):'<p class="mu">No AIs yet.</p>';
+  const v=sheet(`<h2>AI status</h2><p class="mu" style="margin:0 0 8px;font-size:13px">Pick a backup for an AI and its messages are retried automatically with the backup when it fails.</p>${rows}<button class="btn alt" id="ur" style="margin-top:12px">Reset stats</button>`);
+  v.querySelectorAll('[data-fb]').forEach(sl=>sl.onchange=()=>{if(sl.value)localStorage['fb:'+sl.dataset.fb]=sl.value;else localStorage.removeItem('fb:'+sl.dataset.fb);toast(sl.value?cap(sl.dataset.fb)+' falls back to '+cap(sl.value):'No backup for '+cap(sl.dataset.fb))});
   v.querySelector('#ur').onclick=()=>{localStorage.removeItem('use');v.remove();toast('Stats cleared')}}
 function memoryView(){
   $('#app').innerHTML=`<div class="top"><button class="ib" id="bk" aria-label="Back">${ICON.back}</button><h1>Memory &amp; prompts</h1></div><div class="scroll">
@@ -1247,6 +1274,7 @@ function roomWake(members,text){ // which AIs were called by name -> {who:[provi
   return{who:hits.length?hits.map(x=>x.m):'all',rest}}
 function wakeBeep(ac){try{navigator.vibrate&&navigator.vibrate(25)}catch{}try{if(!ac)return;ac.resume&&ac.resume();const o=ac.createOscillator(),g=ac.createGain();o.type='sine';o.frequency.setValueAtTime(660,ac.currentTime);o.frequency.setValueAtTime(990,ac.currentTime+.07);g.gain.setValueAtTime(.0001,ac.currentTime);g.gain.exponentialRampToValueAtTime(.18,ac.currentTime+.02);g.gain.exponentialRampToValueAtTime(.0001,ac.currentTime+.16);o.connect(g);g.connect(ac.destination);o.start();o.stop(ac.currentTime+.17)}catch{}}
 
+async function checkSignedOut(){try{const ps=await api('/api/providers');providers=ps;ps.forEach(p=>{if(p.sessionExpired){const k='exp:'+p.name,at=String((p.health&&p.health.at)||1);if(localStorage[k]!==at){localStorage[k]=at;notifyDone('Log in again',cap(p.name)+' signed out. Open Relay and log in to it again.')}}else localStorage.removeItem('exp:'+p.name)})}catch{}}
 const wakeBgMap=()=>{const m={};providers.forEach(p=>{const a=wnGet(p.name);if(a.length)m[p.name]=a});return m};
 async function pushWakeBg(){try{if(!(A&&A.wakeBgSet))return;if(!providers.length)providers=await api('/api/providers');const map=wakeBgMap();A.wakeBgSet(JSON.stringify({on:localStorage.wbg==='1'&&Object.keys(map).length>0,map}))}catch{}}
 async function wakeSheet(done,who,prov,members){ // the names panel: a voice call (one AI), a room call (its AIs) or Settings (all AIs)
@@ -1758,7 +1786,7 @@ setTimeout(()=>window.__go&&window.__go(),500);
 document.addEventListener('click',e=>{const b=e.target.closest&&e.target.closest('#st');if(b&&tok&&location.hash!=='#/settings'){location.hash='#/settings'}});
 window.addEventListener('unhandledrejection',e=>{try{toast(String(e.reason&&e.reason.message||e.reason||'Error').slice(0,120))}catch{}});
 setInterval(()=>{document.querySelectorAll('.wait').forEach(e=>{const t=+e.dataset.t0;if(!t)return;const n=Math.round((Date.now()-t)/1000);e.textContent=n>=8?'still working… '+n+'s':''})},1000);
-setTimeout(()=>{try{if(tok){rescheduleTasks();autoBackup();pushWakeBg()}}catch{}},1500);
+setTimeout(()=>{try{if(tok){rescheduleTasks();autoBackup();pushWakeBg();checkSignedOut()}}catch{}},1500);
 window.__go0=window.__go;window.__go=()=>{try{const cl=A&&A.takeCall&&A.takeCall();if(cl&&tok){const o=JSON.parse(cl);if(o.ai){localStorage.autocall=JSON.stringify({ai:o.ai,say:o.say||'',type:o.type||'audio'});const h='#/chat/'+encodeURIComponent(o.ai);if(location.hash===h)route();else location.hash=h;return}}}catch{}try{const tk=A&&A.takeTask&&A.takeTask();if(tk&&tok){const i=tk.indexOf('\n');localStorage.prefill=tk.slice(i+1);localStorage.autosend='1';const h='#/chat/'+encodeURIComponent(tk.slice(0,i));if(location.hash===h)route();else location.hash=h;return}}catch{}window.__go0&&window.__go0()};
 setTimeout(()=>{const e=document.getElementById('hi');if(e)e.remove()},1500);
 </script>

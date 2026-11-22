@@ -203,6 +203,23 @@ public class RingActivity extends Activity {
             root.addView(s);
         }
 
+        TextView snooze = text("Call me back in 10 min", 15, Color.WHITE, false);
+        GradientDrawable snp0 = new GradientDrawable();
+        snp0.setCornerRadius(dp(30));
+        snp0.setColor(Color.parseColor("#2B3136"));
+        snooze.setBackground(snp0);
+        snooze.setPadding(dp(22), dp(10), dp(22), dp(10));
+        snooze.setOnClickListener(v -> {
+            Calls.snooze(this, ai, type, say, 10);
+            RingService.stop(this);
+            android.widget.Toast.makeText(this, "I will call you back in 10 minutes", android.widget.Toast.LENGTH_SHORT).show();
+            finish();
+        });
+        LinearLayout.LayoutParams snp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        snp.topMargin = dp(18);
+        snp.gravity = Gravity.CENTER_HORIZONTAL;
+        root.addView(snooze, snp);
+
         View spacer = new View(this);
         root.addView(spacer, new LinearLayout.LayoutParams(1, 0, 1f));
 

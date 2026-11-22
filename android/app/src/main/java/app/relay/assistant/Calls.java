@@ -70,6 +70,18 @@ public class Calls {
         } catch (Exception ignored) { }
     }
 
+    /** "Call me back": rings again after a few minutes (used by the Call me back button on the ring screen). */
+    static void snooze(Context c, String ai, String type, String say, int minutes) {
+        try {
+            String id = "snooze-" + ai;
+            JSONObject o = new JSONObject();
+            o.put("ai", ai).put("type", type).put("say", say).put("label", "Call from " + ai).put("on", true).put("days", 0)
+                    .put("at", System.currentTimeMillis() + minutes * 60000L);
+            c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(id, o.toString()).apply();
+            arm(c, id);
+        } catch (Exception ignored) { }
+    }
+
     /** Puts every enabled call back (after a restart or an app update). */
     static void rearmAll(Context c) {
         try {

@@ -67,6 +67,7 @@ textarea.in{resize:none;min-height:140px;line-height:1.5}
 .act span{flex:1}
 .act.done{border-color:var(--ln);color:var(--mu)}
 .mact{display:flex;gap:8px;margin-top:8px}
+.callcard{align-self:center;width:92%;max-width:520px;margin:10px 0;padding:11px 14px;border:1px solid var(--ln);border-radius:16px;background:var(--s2);font-size:14px}.callcard .cct{font-weight:600}.callcard .ccs{margin:8px 0 2px;line-height:1.45}.callcard .mact{margin:8px 0 0}
 .composer{display:flex;gap:10px;align-items:flex-end;padding:10px 14px calc(12px + env(safe-area-inset-bottom));background:linear-gradient(transparent,var(--ink) 30%)}
 .composer textarea{flex:1;max-height:140px;min-height:46px;border-radius:23px;padding:12px 16px;background:var(--s2);border:1px solid var(--ln);outline:0;resize:none;line-height:1.4}
 .composer textarea:focus{border-color:var(--a1)}
@@ -469,7 +470,11 @@ async function chatView(pn){
     try{await api('/api/playground/reset','POST',{model:pn})}catch(e){toast(e.message);return}msgs=[];store(pn,msgs);draw()};
   ta.oninput=()=>{ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,140)+'px'};
 
+  const fmtDur=n=>n<60?n+' s':Math.floor(n/60)+' min'+(n%60?' '+n%60+' s':'');
+  function callCard(m,i){const c=m.call||{};
+    return `<div class="callcard"><div class="cct">📞 ${c.video?'Video call':'Voice call'} · ${esc(fmtDur(c.secs||0))}</div>${c.summary?`<div class="ccs">${md(c.summary)}</div>`:c.busy?'<div class="ccs" style="color:var(--mu)">Writing the summary…</div>':''}<div class="mact">${c.summary||c.busy?'':`<button data-csum="${i}">Summarize</button>`}<button data-ctr="${i}">Copy transcript</button>${c.summary?`<button data-cscp="${i}">Copy summary</button>`:''}</div></div>`}
   function bubble(m,i){
+    if(m.kind==='call')return callCard(m,i);
     if(m.pending&&!m.content)return `<div class="who" style="color:var(--mu)">${logo(m.via||pn,18)}<span>${esc(cap(m.via||pn))}${m.via?' (backup)':''}</span></div><div class="msg assistant"><span class="typing"><i></i><i></i><i></i></span><small class="wait" data-t0="${m.t0||''}" style="color:var(--mu);margin-left:10px"></small></div>`;
     let h=(m.role==='assistant'&&!m.err?`<div class="who" style="color:var(--mu)">${logo(m.via||pn,18)}<span>${esc(cap(m.via||pn))}${m.via?' (backup, '+esc(cap(pn))+' did not answer)':''}</span></div>`:'')+`<div class="msg ${m.role}${m.err?' err':''}" data-i="${i}">${m.role==='assistant'&&!m.err?md(m.content):esc(m.content)}</div>`;
     if(m.role==='user'&&!busy&&i===msgs.map(x=>x.role).lastIndexOf('user'))h+=`<div class="mact" style="justify-content:flex-end"><button data-ed="${i}">Edit</button></div>`;
@@ -488,6 +493,9 @@ async function chatView(pn){
     chat.querySelectorAll('.act button:not([data-go])').forEach(b=>b.onclick=()=>{const m=msgs[b.dataset.i],a=actionsOf(m.content)[b.dataset.k];m.done=m.done||{};const res=runAction(a);m.done[b.dataset.k]=res;store(pn,msgs);draw();if(a.action==='read_screen'&&!busy&&!/^(Screen control|Accessibility|Could not)/.test(res)){ta.value='Here is what the screen shows:\n'+res;send()}});
     chat.querySelectorAll('[data-ed]').forEach(b=>b.onclick=()=>{if(busy)return;const i=+b.dataset.ed,u=msgs[i];msgs.splice(i);store(pn,msgs);ta.value=u.content.replace(/\n📎 .*$/,'');draw();ta.focus();ta.oninput&&ta.oninput();toast('Edit it and send again')});
     chat.querySelectorAll('[data-cp]').forEach(b=>b.onclick=()=>copyText(msgs[+b.dataset.cp].content));
+    chat.querySelectorAll('[data-csum]').forEach(b=>b.onclick=()=>callSummarize(+b.dataset.csum));
+    chat.querySelectorAll('[data-ctr]').forEach(b=>b.onclick=()=>copyText((msgs[+b.dataset.ctr].call||{}).text||''));
+    chat.querySelectorAll('[data-cscp]').forEach(b=>b.onclick=()=>copyText((msgs[+b.dataset.cscp].call||{}).summary||''));
     chat.querySelectorAll('[data-rt]').forEach(b=>b.onclick=()=>{if(busy)return;const i=msgs.length-1,u=msgs[i-1];if(!u||u.role!=='user')return;msgs.splice(i-1,2);store(pn,msgs);ta.value=u.content.replace(/\n📎 .*$/,'');draw();send()});
     chat.scrollTop=chat.scrollHeight;if(typeof drawQuick==='function')drawQuick();
   }
@@ -515,7 +523,7 @@ async function chatView(pn){
     msgs.push({role:'user',content:text+(sendFiles.length?'\n📎 '+sendFiles.map(f=>f.name).join(', '):'')});const me={role:'assistant',content:'',pending:true,t0:Date.now()};msgs.push(me);draw();
     let aborted=false;
     const ask=async(mdl)=>{
-      const hist=msgs.filter(m=>!m.pending&&!m.err).map(m=>({role:m.role,content:m.content})).slice(-40);
+      const hist=msgs.filter(m=>!m.pending&&!m.err&&m.kind!=='call').map(m=>({role:m.role,content:m.content})).slice(-40);
       const sys=sysPrompt(pn)+(sv&&sv.on?' The User is speaking to you out loud and your reply will be read aloud, so answer briefly and naturally in plain sentences, with no lists, markdown or code.':''),body={model:mdl,messages:(sys?[{role:'system',content:sys}]:[]).concat(hist),stream:true};if(sendFiles.length)body.files=sendFiles;
       const r=await fetch('/api/playground',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+tok},body:JSON.stringify(body)});
       if(r.status===401){logout(true);aborted=true;return}
@@ -566,17 +574,36 @@ async function chatView(pn){
     try{const v=$('#vvid');if(!sv||!sv.video||sv.camOff||!sv.stream||!v||!v.videoWidth)return null;
       const k=Math.min(1,768/Math.max(v.videoWidth,v.videoHeight)),c=document.createElement('canvas');c.width=Math.round(v.videoWidth*k);c.height=Math.round(v.videoHeight*k);c.getContext('2d').drawImage(v,0,0,c.width,c.height);
       return{name:'camera.jpg',type:'image/jpeg',b64:c.toDataURL('image/jpeg',.7).split(',')[1]}}catch{return null}}
+  async function callSummarize(i){
+    const m=msgs[i];if(!m||m.kind!=='call'||!m.call||m.call.busy||!m.call.text)return;
+    m.call.busy=true;if(cur===pn)draw();
+    const prompt='Here is the transcript of a voice call between me and you. Write a short summary as 3 to 6 plain bullet points, with no introduction. Then add one line starting with "To do:" listing any action items, things I asked you to do or things you promised, or "To do: nothing".\n\nTranscript:\n'+m.call.text;
+    const tryModel=async mdl=>llmOnce(mdl,[{role:'user',content:prompt}]);
+    let out='',err='';
+    try{out=await tryModel(pn)}catch(e){err=e.message;const fb=fallbackFor(pn);if(fb)try{out=await tryModel(fb);err=''}catch(e2){err=e2.message}}
+    m.call.busy=false;
+    if(out){m.call.summary=out;m.content+='\nSummary:\n'+out;useStat(pn,true)}else{toast('Could not write the summary: '+String(err||'no reply').slice(0,100));useStat(pn,false,err||'No reply')}
+    store(pn,msgs);if(cur===pn)draw()}
+  function svCard(){
+    if(!sv||sv.startIdx==null)return;
+    const seg=msgs.slice(sv.startIdx).filter(m=>!m.pending&&!m.err&&m.kind!=='call'&&m.content);
+    if(!seg.some(m=>m.role==='user')||!seg.some(m=>m.role==='assistant'))return;
+    const text=seg.map(m=>(m.role==='user'?'You':cap(m.via||pn))+': '+extract(m.content).text.replace(/\n📎 .*$/,'')).join('\n\n').slice(-9000);
+    const secs=Math.max(1,Math.round((Date.now()-sv.t0)/1000));
+    msgs.push({role:'assistant',kind:'call',content:'📞 '+(sv.video?'Video call':'Voice call')+' · '+fmtDur(secs)+' · '+seg.length+' messages',call:{secs,video:!!sv.video,text,summary:''}});
+    store(pn,msgs);if(cur===pn)draw();
+    if(localStorage.callsum==='1')callSummarize(msgs.length-1)}
   function svClose(){
     try{A&&A.keepOn&&A.keepOn(false);A&&A.voiceBg&&A.voiceBg(false)}catch{}
     if(!sv)return;sv.on=false;try{if(sv.stream)sv.stream.getTracks().forEach(t=>t.stop())}catch{}Voice.stopListen();Voice.stopSpeak();
     if(sv.tap){const t=sv.tap;sv.tap=null;t()}
-    const d=$('#vo');if(d)d.remove();sv=null}
+    const d=$('#vo');if(d)d.remove();try{svCard()}catch{}sv=null}
   function svStart(first,video){
     if(!Voice.ok()){toast('Voice is not available here. Update the Relay app or use Chrome.');return}
     if(busy){toast('Wait for the reply to finish first');return}
     if(sv&&sv.on)return;
     try{A&&A.keepOn&&A.keepOn(true);if(A&&A.voiceBg&&localStorage.vbg!=='0')A.voiceBg(true)}catch{}
-    sv={on:true,muted:false,listening:false,idle:false,speaking:false,caption:'',miss:0,err:0,tap:null,say:'',wake:localStorage.wakeOn==='1'&&soloWake(pn).length>0,armed:false,follow:0,ac:null,first:typeof first==='string'?first:'',video:!!video&&!!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia),face:'user',stream:null,camOff:false,talk:localStorage.talkover!=='0',carry:''};
+    sv={on:true,muted:false,listening:false,idle:false,speaking:false,caption:'',miss:0,err:0,tap:null,say:'',wake:localStorage.wakeOn==='1'&&soloWake(pn).length>0,armed:false,follow:0,ac:null,first:typeof first==='string'?first:'',video:!!video&&!!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia),face:'user',stream:null,camOff:false,talk:localStorage.talkover!=='0',carry:'',startIdx:msgs.length,t0:Date.now()};
     try{sv.ac=new (window.AudioContext||window.webkitAudioContext)()}catch{}
     const d=document.createElement('div');d.id='vo';d.className='vo';
     d.innerHTML=`<div class="vtop"><b>${esc(cap(pn))}${sv.video?' · video':''}</b></div>${sv.video?'<video id="vvid" class="vvid" autoplay playsinline muted></video>':''}<div class="vst" id="vst"></div>
@@ -641,7 +668,7 @@ async function chatView(pn){
   $('#pin').onclick=()=>{let a=jget('pins',[]);if(a.includes(pn)){a=a.filter(x=>x!==pn);toast('Unpinned')}else{a.push(pn);toast('Pinned to the top')}localStorage.pins=JSON.stringify(a);pinI()};
   const spi=()=>{$('#sp').innerHTML=spOn()?ICON.speaker:ICON.speakeroff};spi();
   $('#sp').onclick=()=>{localStorage['tts:'+pn]=spOn()?'0':'1';spi();if(!spOn())Voice.stopSpeak();else toast('Replies will be read aloud')};
-  $('#ex').onclick=()=>exportText(cap(pn)+' chat',msgs.filter(m=>!m.err).map(m=>(m.role==='user'?'You':cap(pn))+': '+extract(m.content).text).join('\n\n'));
+  $('#ex').onclick=()=>exportText(cap(pn)+' chat',msgs.filter(m=>!m.err).map(m=>m.kind==='call'?m.content+(m.call&&m.call.summary?'\nSummary:\n'+m.call.summary:''):(m.role==='user'?'You':cap(pn))+': '+extract(m.content).text).join('\n\n'));
   $('#mc').onclick=async()=>{
     if(busy)return;if(!Voice.ok()){toast('Voice is not available here');return}
     Voice.stopSpeak();$('#mc').style.borderColor='var(--a2)';
@@ -675,6 +702,7 @@ function settingsView(){
    <button class="row" id="clb"><div class="m"><b>Scheduled calls</b><small>The AI rings you at a set time, even when the app is closed. Also a low-battery wake-up alarm.</small></div>›</button>
    <button class="row" id="tkb"><div class="m"><b>Scheduled asks</b><small>A notification at a set time that sends your question to an AI</small></div>›</button>
    <button class="row" id="vbgb"><div class="m"><b>Voice keeps running in the background</b><small>Lets a voice meeting continue with the screen off or in another app. Shows a notification while it runs.</small></div>${sw('vbg',localStorage.vbg!=='0')}</button>
+   <button class="row" id="csb"><div class="m"><b>Summarize calls automatically</b><small>When a call ends, the AI writes a short summary under it. Uses one extra message per call. You can also tap Summarize yourself.</small></div>${sw('csg',localStorage.callsum==='1')}</button>
    <button class="row" id="wbb"><div class="m"><b>Listen for names when Relay is closed</b><small>Say an AI's name and a call with it starts. Needs a wake name for the AI and shows a notification while listening. Uses battery.</small></div>${sw('wbg',localStorage.wbg==='1')}</button>
    <button class="row" id="wkb"><div class="m"><b>Wake names</b><small>${(()=>{const ns=providers.map(p=>wnGet(p.name)[0]).filter(Boolean);if(localStorage.wakeOn==='1'&&(ns.length||wakeNames().length))return 'On: '+esc((ns.length?ns:[wakeNames()[0]]).join(', '));return 'Off. Give each AI a name and a voice call answers only to it'})()}</small></div>›</button>
    <button class="row" id="vcb"><div class="m"><b>Voices</b><small>Phone or human voice, speed, and a voice for each AI</small></div>›</button>
@@ -704,6 +732,7 @@ function settingsView(){
   if($('#scb'))$('#scb').onclick=async()=>{if(typeof A.a11yConnected!=='function'||typeof A.setCtl!=='function'){toast('Update the Relay app to use screen control');return}const on=!ctlLive();
     if(on&&!A.a11yConnected()){if(await ask('First turn on “Relay screen control” in Android Accessibility settings. Android will show a warning, and Relay only acts when you press Run on an action.','Open settings')){A.setCtl(true);A.openA11y()}return}
     A.setCtl(on);$('#sc').classList.toggle('on',on)};
+  $('#csb').onclick=()=>{const on=localStorage.callsum==='1';localStorage.callsum=on?'0':'1';$('#csg').classList.toggle('on',!on)};
   if($('#wbb'))$('#wbb').onclick=async()=>{if(!(A&&A.wakeBgSet)){toast('Update the Relay app (new APK) to use this');return}
     if(!providers.length)try{providers=await api('/api/providers')}catch{}
     const on=localStorage.wbg==='1';
@@ -773,6 +802,17 @@ function dsSheet(p){const S={chats:[],cursor:'',more:false,sel:new Set(),err:'',
   async function del(ids){if(!confirm('Delete '+ids.length+' chat'+(ids.length>1?'s':'')+' from your DeepSeek account? This cannot be undone.'))return;
     try{const r=await api(base+'/delete','POST',{ids});S.chats=S.chats.filter(c=>!r.deleted.includes(c.id));r.deleted.forEach(i=>S.sel.delete(i));toast(r.deleted.length+' deleted'+(r.failed.length?', '+r.failed.length+' failed':''));S.err=r.failed.length?r.failed[0].error:''}catch(e){S.err=e.message}list()}
   load(true)}
+async function llmOnce(model,messages){
+  const r=await fetch('/api/playground',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+tok},body:JSON.stringify({model,messages,stream:true})});
+  if(r.status===401){logout(true);throw new Error('Signed out')}
+  if(!(r.headers.get('content-type')||'').includes('event-stream')){const j=await r.json().catch(()=>({}));throw new Error((j.error&&(j.error.message||j.error))||'Error '+r.status)}
+  const rd=r.body.getReader(),dec=new TextDecoder();let buf='',out='';
+  for(;;){const {done,value}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});let i;
+    while((i=buf.indexOf('\n\n'))>=0){const ev=buf.slice(0,i).trim();buf=buf.slice(i+2);if(!ev.startsWith('data:'))continue;const d=ev.slice(5).trim();if(d==='[DONE]')continue;let j;try{j=JSON.parse(d)}catch{continue}
+      if(j.error)throw new Error(j.error.message||'The AI could not answer');
+      if(typeof j.relay_replace==='string'){out=j.relay_replace;continue}
+      const t=j.choices&&j.choices[0]&&j.choices[0].delta&&j.choices[0].delta.content;if(t)out+=t}}
+  if(!out.trim())throw new Error('No reply came back');return out.trim()}
 const fallbackFor=n=>{const f=localStorage['fb:'+n];if(!f||f===n)return '';const p=providers.find(x=>x.name===f);return p&&!p.sessionExpired&&p.hasSession!==false?f:''};
 function aiState(p,x){
   if(p&&p.sessionExpired)return['Signed out','#f87171','Log in to this AI again on the website tab'];

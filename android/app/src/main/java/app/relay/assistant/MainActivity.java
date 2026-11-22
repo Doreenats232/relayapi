@@ -463,6 +463,50 @@ public class MainActivity extends Activity {
             });
         }
 
+        /** Quick-start calls: long-press app icon shortcuts and the quick-settings tile. json: {"items":[{"ai","type","label"}],"tile":{"ai","type"}} */
+        @JavascriptInterface public void quickSet(final String json) {
+            ui.post(() -> {
+                try {
+                    JSONObject o = new JSONObject(json);
+                    getSharedPreferences("quick", MODE_PRIVATE).edit().putString("json", json).apply();
+                    android.content.pm.ShortcutManager sm = getSystemService(android.content.pm.ShortcutManager.class);
+                    if (sm == null) return;
+                    org.json.JSONArray items = o.optJSONArray("items");
+                    java.util.List<android.content.pm.ShortcutInfo> list = new java.util.ArrayList<>();
+                    for (int k = 0; items != null && k < items.length() && k < 4; k++) {
+                        JSONObject it = items.getJSONObject(k);
+                        String a = it.optString("ai", ""), t = it.optString("type", "audio");
+                        if (a.isEmpty()) continue;
+                        String label = it.optString("label", a);
+                        Intent in = RingService.answerIntent(MainActivity.this, a, t, "", "quick");
+                        in.setAction(Intent.ACTION_VIEW);
+                        list.add(new android.content.pm.ShortcutInfo.Builder(MainActivity.this, t + "-" + a)
+                                .setShortLabel(label.length() > 14 ? label.substring(0, 14) : label)
+                                .setLongLabel(label)
+                                .setIcon(android.graphics.drawable.Icon.createWithResource(MainActivity.this, getApplicationInfo().icon))
+                                .setIntent(in)
+                                .build());
+                    }
+                    sm.setDynamicShortcuts(list);
+                } catch (Exception ignored) { }
+            });
+        }
+
+        /** Offers to add the "Call an AI" tile to quick settings (Android 13 and newer ask with one tap; older versions get instructions). */
+        @JavascriptInterface public void quickAddTile() {
+            ui.post(() -> {
+                try {
+                    if (android.os.Build.VERSION.SDK_INT >= 33) {
+                        android.app.StatusBarManager sb = getSystemService(android.app.StatusBarManager.class);
+                        sb.requestAddTileService(new android.content.ComponentName(MainActivity.this, CallTile.class), "Call an AI",
+                                android.graphics.drawable.Icon.createWithResource(MainActivity.this, R.drawable.ic_call), getMainExecutor(), r -> { });
+                    } else {
+                        android.widget.Toast.makeText(MainActivity.this, "Swipe down twice, tap the pencil, and drag \"Call an AI\" into your tiles", android.widget.Toast.LENGTH_LONG).show();
+                    }
+                } catch (Exception ignored) { }
+            });
+        }
+
         @JavascriptInterface public boolean wakeBgRunning() { return WakeService.running; }
 
         @JavascriptInterface public void voiceBg(final boolean on) {

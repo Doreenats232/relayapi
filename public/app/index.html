@@ -907,6 +907,11 @@ async function tasksView(){
     const t={id:'t'+Date.now(),ai,prompt:prompt.slice(0,500),time,daily:$('#td').checked,at:nextAt(time)};a.push(t);localStorage.tasks=JSON.stringify(a);schedule(t);askNotif();$('#tq').value='';draw();toast('Scheduled')}}
 /* ---- scheduled calls + low-battery alarm (ring on the phone, even with the app closed) ---- */
 const callsList=()=>jget('calls',[]);
+const CALL_PRESETS=[
+  {n:'Morning briefing',t:'07:30',d:127,say:'Good morning! Give me a short spoken briefing for today: the date, a reminder to check the weather, the main news in a few lines, and ask me what my top priority is.'},
+  {n:'Wake-up call',t:'06:30',d:62,say:'Wake me up with some energy. Keep it short and cheerful, then ask if I am up.'},
+  {n:'Evening check-in',t:'21:00',d:127,say:'Let us do a quick check-in on my day. Ask me what went well and what did not, then help me plan tomorrow in a few steps.'},
+  {n:'Weekly review',t:'18:00',d:1,say:'Help me do my weekly review. Ask what I got done, what slipped and what matters most next week.'}];
 const DAYN=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 function callPayload(c){const [h,m]=c.time.split(':').map(Number);const o={ai:c.ai,type:c.type==='video'?'video':'audio',say:c.say||'',label:c.label||('Call from '+cap(c.ai)),on:c.on!==false,days:c.days|0,hour:h,minute:m};if(!o.days)o.at=nextAt(c.time);return JSON.stringify(o)}
 function pushCall(c){try{if(A&&A.scheduleCall)A.scheduleCall(c.id,callPayload(c))}catch{}}
@@ -928,6 +933,8 @@ async function callsView(){
   <p class="mu" style="margin:0 0 12px">At the time you choose, your phone rings like a call, even with the app closed. Answer it and a voice call with that AI starts. ${native?'':'This needs the latest Relay Android app (install the new APK).'}</p>
   <div class="card" id="cl" style="padding:4px 16px"></div>
   <div class="sec" style="margin-top:18px">New call</div>
+  <div class="mu" style="font-size:13px;margin:0 0 6px">Start from a preset</div>
+  <div class="chips" id="cpre">${CALL_PRESETS.map((x,i)=>`<button class="chip" data-p="${i}">${esc(x.n)}</button>`).join('')}</div>
   <label class="fld"><span>AI</span><select id="ca" class="in">${providers.map(p=>`<option value="${esc(p.name)}">${esc(p.name)}</option>`).join('')}</select></label>
   <label class="fld"><span>Time</span><input id="ct" class="in" type="time" value="08:00"></label>
   <div class="mu" style="font-size:13px;margin:4px 0">Type of call</div>
@@ -937,6 +944,11 @@ async function callsView(){
   <label class="fld" style="margin-top:10px"><span>What it says when you answer (optional)</span><textarea id="cs" class="in" style="min-height:70px" placeholder="e.g. Good morning, tell me my schedule and the top news"></textarea></label>
   <button class="btn" id="cadd">Schedule call</button>
   <button class="chip" id="ctest" style="margin-top:10px">Test: ring me in 10 seconds</button>
+  <div class="sec" style="margin-top:18px">Quick start</div>
+  <p class="mu" style="margin:0 0 8px;font-size:13px">Long-press the Relay icon on your home screen to start a call straight away. You can also put a Call tile in your quick settings (swipe down twice).</p>
+  <label class="fld"><span>AI for the tile and the top shortcut</span><select id="qa" class="in">${providers.map(p=>`<option value="${esc(p.name)}"${localStorage.qcAi===p.name?' selected':''}>${esc(p.name)}</option>`).join('')}</select></label>
+  <div class="chips" id="qt"><button class="chip${localStorage.qcType==='video'?'':' on'}" data-qt="audio">Tile: voice call</button><button class="chip${localStorage.qcType==='video'?' on':''}" data-qt="video">Tile: video call</button></div>
+  <button class="chip" id="qtile" style="margin-top:8px">Add the Call tile to quick settings</button>
   <div class="sec" style="margin-top:18px">Make sure it can ring</div><div class="card" id="cp" style="padding:4px 16px"></div>
   <div class="sec" style="margin-top:18px">Low-battery wake-up alarm</div>
   <p class="mu" style="margin:0 0 8px;font-size:13px">If the battery is low and you may have slept off, the phone rings until you plug in a charger. Battery now: ${bat.level>=0?bat.level+'%':'unknown'}${bat.charging?' (charging)':''}.</p>
@@ -945,9 +957,15 @@ async function callsView(){
   <label class="fld"><span>Ring the alarm at (%)</span><input id="bal" class="in" type="number" min="3" max="40" value="${bat.alarm||15}"></label>
   <button class="chip" id="bsave">Save battery settings</button> <button class="chip" id="btest">Test the alarm</button></div>`;
   $('#bk').onclick=()=>location.hash='#/settings';
+  $('#qa').onchange=()=>{localStorage.qcAi=$('#qa').value;pushQuick();toast('Saved')};
+  $('#qt').querySelectorAll('[data-qt]').forEach(b=>b.onclick=()=>{localStorage.qcType=b.dataset.qt;$('#qt').querySelectorAll('[data-qt]').forEach(x=>x.classList.toggle('on',x===b));pushQuick()});
+  $('#qtile').onclick=()=>{if(!(A&&A.quickAddTile)){toast('Needs the latest Relay Android app');return}pushQuick();A.quickAddTile()};
+  pushQuick();
   draw();if(native&&A.callPerms)perms();else $('#cp').innerHTML='<p class="mu" style="padding:12px 0;margin:0">Shown in the Android app.</p>';
   $('#cty').querySelectorAll('[data-ty]').forEach(b=>b.onclick=()=>{cty=b.dataset.ty;$('#cty').querySelectorAll('[data-ty]').forEach(x=>x.classList.toggle('on',x===b))});
   const w=$('#cd');
+  const setDays=m=>{dsel.clear();w.querySelectorAll('[data-w]').forEach(b=>{const i=+b.dataset.w,on=!!(m&(1<<i));if(on)dsel.add(i);b.classList.toggle('on',on)})};
+  $('#cpre').querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>{const x=CALL_PRESETS[+b.dataset.p];$('#ct').value=x.t;setDays(x.d);$('#cs').value=x.say;toast(x.n+' filled in. Pick the AI and tap Schedule call.')});
   w.querySelectorAll('[data-w]').forEach(b=>b.onclick=()=>{const i=+b.dataset.w;if(dsel.has(i))dsel.delete(i);else dsel.add(i);b.classList.toggle('on',dsel.has(i))});
   $('#cdall').onclick=()=>{const all=dsel.size<7;w.querySelectorAll('[data-w]').forEach(b=>{const i=+b.dataset.w;if(all)dsel.add(i);else dsel.delete(i);b.classList.toggle('on',all)})};
   $('#cadd').onclick=()=>{const ai=$('#ca').value,time=$('#ct').value,say=$('#cs').value.trim().slice(0,300);if(!ai||!time){toast('Pick an AI and a time');return}
@@ -1314,6 +1332,13 @@ function roomWake(members,text){ // which AIs were called by name -> {who:[provi
   return{who:hits.length?hits.map(x=>x.m):'all',rest}}
 function wakeBeep(ac){try{navigator.vibrate&&navigator.vibrate(25)}catch{}try{if(!ac)return;ac.resume&&ac.resume();const o=ac.createOscillator(),g=ac.createGain();o.type='sine';o.frequency.setValueAtTime(660,ac.currentTime);o.frequency.setValueAtTime(990,ac.currentTime+.07);g.gain.setValueAtTime(.0001,ac.currentTime);g.gain.exponentialRampToValueAtTime(.18,ac.currentTime+.02);g.gain.exponentialRampToValueAtTime(.0001,ac.currentTime+.16);o.connect(g);g.connect(ac.destination);o.start();o.stop(ac.currentTime+.17)}catch{}}
 
+function quickItems(){
+  const u=jget('use',{}),names=providers.map(p=>p.name).sort((a,b)=>((u[b]||{}).ok||0)-((u[a]||{}).ok||0));
+  const def=localStorage.qcAi&&names.includes(localStorage.qcAi)?localStorage.qcAi:names[0];if(!def)return null;
+  const items=[{ai:def,type:'audio',label:'Call '+cap(def)},{ai:def,type:'video',label:'Video call '+cap(def)}];
+  names.filter(n=>n!==def).slice(0,2).forEach(n=>items.push({ai:n,type:'audio',label:'Call '+cap(n)}));
+  return{items,tile:{ai:def,type:localStorage.qcType==='video'?'video':'audio'}}}
+async function pushQuick(){try{if(!(A&&A.quickSet))return;if(!providers.length)providers=await api('/api/providers');const q=quickItems();if(q)A.quickSet(JSON.stringify(q))}catch{}}
 async function checkSignedOut(){try{const ps=await api('/api/providers');providers=ps;ps.forEach(p=>{if(p.sessionExpired){const k='exp:'+p.name,at=String((p.health&&p.health.at)||1);if(localStorage[k]!==at){localStorage[k]=at;notifyDone('Log in again',cap(p.name)+' signed out. Open Relay and log in to it again.')}}else localStorage.removeItem('exp:'+p.name)})}catch{}}
 const wakeBgMap=()=>{const m={};providers.forEach(p=>{const a=wnGet(p.name);if(a.length)m[p.name]=a});return m};
 async function pushWakeBg(){try{if(!(A&&A.wakeBgSet))return;if(!providers.length)providers=await api('/api/providers');const map=wakeBgMap();A.wakeBgSet(JSON.stringify({on:localStorage.wbg==='1'&&Object.keys(map).length>0,map}))}catch{}}
@@ -1826,7 +1851,7 @@ setTimeout(()=>window.__go&&window.__go(),500);
 document.addEventListener('click',e=>{const b=e.target.closest&&e.target.closest('#st');if(b&&tok&&location.hash!=='#/settings'){location.hash='#/settings'}});
 window.addEventListener('unhandledrejection',e=>{try{toast(String(e.reason&&e.reason.message||e.reason||'Error').slice(0,120))}catch{}});
 setInterval(()=>{document.querySelectorAll('.wait').forEach(e=>{const t=+e.dataset.t0;if(!t)return;const n=Math.round((Date.now()-t)/1000);e.textContent=n>=8?'still working… '+n+'s':''})},1000);
-setTimeout(()=>{try{if(tok){rescheduleTasks();autoBackup();pushWakeBg();checkSignedOut()}}catch{}},1500);
+setTimeout(()=>{try{if(tok){rescheduleTasks();autoBackup();pushWakeBg();checkSignedOut();pushQuick()}}catch{}},1500);
 window.__go0=window.__go;window.__go=()=>{try{const cl=A&&A.takeCall&&A.takeCall();if(cl&&tok){const o=JSON.parse(cl);if(o.ai){localStorage.autocall=JSON.stringify({ai:o.ai,say:o.say||'',type:o.type||'audio'});const h='#/chat/'+encodeURIComponent(o.ai);if(location.hash===h)route();else location.hash=h;return}}}catch{}try{const tk=A&&A.takeTask&&A.takeTask();if(tk&&tok){const i=tk.indexOf('\n');localStorage.prefill=tk.slice(i+1);localStorage.autosend='1';const h='#/chat/'+encodeURIComponent(tk.slice(0,i));if(location.hash===h)route();else location.hash=h;return}}catch{}window.__go0&&window.__go0()};
 setTimeout(()=>{const e=document.getElementById('hi');if(e)e.remove()},1500);
 </script>

@@ -177,6 +177,41 @@ app.post('/api/providers/:id/chats/delete', auth, async (req, res) => { // body:
   for (const cid of ids) { try { await B.dsDelete(p, cid); done.push(cid); for (const [ck, c] of Object.entries(db.chats)) if (ck.startsWith(p.userId + ':' + p.id + ':') && String(c.url || '').split('/').pop() === cid) { await B.forget(ck); delete sysSent[ck]; } } catch (e) { failed.push({ id: cid, error: e.message }); if (/session expired/i.test(e.message)) { chatErr(p, { status: () => ({ json: () => {} }) }, e); break; } } }
   res.json({ deleted: done, failed }); });
 app.get('/api/providers', auth, (req, res) => res.json(db.providers.filter(p => p.userId === req.uid).map(({ cookies, ...p }) => ({ ...p, hasSession: !!cookies, sessionExpired: !!(p.health && p.health.ok === false) }))));
+// ---------- share an App Creator app as a link ----------
+// The page is served with a sandbox policy (no access to this site's data or logins), so a shared app can never read anyone's session.
+const shares = () => (db.shares = db.shares || {});
+const SHARE_MAX = 150 * 1024, SHARE_PER_USER = 10;
+app.get('/api/shares', auth, (req, res) => res.json(Object.entries(shares()).filter(([, x]) => x.userId === req.uid).map(([k, x]) => ({ id: k, appId: x.appId, title: x.title, at: x.at, size: x.html.length }))));
+app.post('/api/shares', auth, (req, res) => {
+  const { appId, title, html } = req.body || {};
+  if (typeof html !== 'string' || html.length < 20) return res.status(400).json({ error: 'Nothing to share yet' });
+  if (html.length > SHARE_MAX) return res.status(413).json({ error: 'This app is too big to share as a link (the limit is ' + Math.round(SHARE_MAX / 1024) + ' KB)' });
+  const S = shares();
+  let key = appId ? Object.keys(S).find(k => S[k].userId === req.uid && S[k].appId === String(appId).slice(0, 40)) : null;
+  if (!key) {
+    if (Object.values(S).filter(x => x.userId === req.uid).length >= SHARE_PER_USER) return res.status(400).json({ error: 'You can share up to ' + SHARE_PER_USER + ' apps. Stop sharing one first.' });
+    key = crypto.randomBytes(6).toString('base64url');
+  }
+  S[key] = { userId: req.uid, appId: String(appId || '').slice(0, 40), title: String(title || 'App').slice(0, 80), html, at: Date.now() };
+  save();
+  res.json({ id: key, path: '/a/' + key });
+});
+app.delete('/api/shares/:id', auth, (req, res) => {
+  const S = shares(), x = S[req.params.id];
+  if (!x || x.userId !== req.uid) return res.status(404).json({ error: 'Not found' });
+  delete S[req.params.id]; save();
+  res.json({ ok: true });
+});
+app.get('/a/:id', (req, res) => {
+  const x = shares()[req.params.id];
+  if (!x) return res.status(404).type('html').send('<meta name="viewport" content="width=device-width,initial-scale=1"><body style="font-family:sans-serif;padding:48px 24px;text-align:center"><h2>This app is not shared any more</h2>');
+  res.set({
+    'Content-Type': 'text/html; charset=utf-8',
+    'Content-Security-Policy': 'sandbox allow-scripts allow-forms allow-modals allow-popups allow-downloads allow-pointer-lock',
+    'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex', 'Cache-Control': 'no-store'
+  });
+  res.send(x.html);
+});
 // human-sounding voices (see tts.js)
 const tts = require('./tts');
 app.get('/api/tts/config', auth, (req, res) => res.json(tts.config()));

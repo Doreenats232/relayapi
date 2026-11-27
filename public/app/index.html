@@ -67,6 +67,8 @@ textarea.in{resize:none;min-height:140px;line-height:1.5}
 .act span{flex:1}
 .act.done{border-color:var(--ln);color:var(--mu)}
 .mact{display:flex;gap:8px;margin-top:8px}
+.msg.flash,.callcard.flash{outline:2px solid #8b93ff;outline-offset:3px}
+mark{background:rgba(250,204,21,.28);color:inherit;border-radius:3px;padding:0 1px}
 .callcard{align-self:center;width:92%;max-width:520px;margin:10px 0;padding:11px 14px;border:1px solid var(--ln);border-radius:16px;background:var(--s2);font-size:14px}.callcard .cct{font-weight:600}.callcard .ccs{margin:8px 0 2px;line-height:1.45}.callcard .mact{margin:8px 0 0}
 .composer{display:flex;gap:10px;align-items:flex-end;padding:10px 14px calc(12px + env(safe-area-inset-bottom));background:linear-gradient(transparent,var(--ink) 30%)}
 .composer textarea{flex:1;max-height:140px;min-height:46px;border-radius:23px;padding:12px 16px;background:var(--s2);border:1px solid var(--ln);outline:0;resize:none;line-height:1.4}
@@ -472,7 +474,7 @@ async function chatView(pn){
 
   const fmtDur=n=>n<60?n+' s':Math.floor(n/60)+' min'+(n%60?' '+n%60+' s':'');
   function callCard(m,i){const c=m.call||{};
-    return `<div class="callcard"><div class="cct">📞 ${c.video?'Video call':'Voice call'} · ${esc(fmtDur(c.secs||0))}</div>${c.summary?`<div class="ccs">${md(c.summary)}</div>`:c.busy?'<div class="ccs" style="color:var(--mu)">Writing the summary…</div>':''}<div class="mact">${c.summary||c.busy?'':`<button data-csum="${i}">Summarize</button>`}<button data-ctr="${i}">Copy transcript</button>${c.summary?`<button data-cscp="${i}">Copy summary</button>`:''}</div></div>`}
+    return `<div class="callcard" data-i="${i}"><div class="cct">📞 ${c.video?'Video call':'Voice call'} · ${esc(fmtDur(c.secs||0))}</div>${c.summary?`<div class="ccs">${md(c.summary)}</div>`:c.busy?'<div class="ccs" style="color:var(--mu)">Writing the summary…</div>':''}<div class="mact">${c.summary||c.busy?'':`<button data-csum="${i}">Summarize</button>`}<button data-ctr="${i}">Copy transcript</button>${c.summary?`<button data-cscp="${i}">Copy summary</button>`:''}</div></div>`}
   function bubble(m,i){
     if(m.kind==='call')return callCard(m,i);
     if(m.pending&&!m.content)return `<div class="who" style="color:var(--mu)">${logo(m.via||pn,18)}<span>${esc(cap(m.via||pn))}${m.via?' (backup)':''}</span></div><div class="msg assistant"><span class="typing"><i></i><i></i><i></i></span><small class="wait" data-t0="${m.t0||''}" style="color:var(--mu);margin-left:10px"></small></div>`;
@@ -676,6 +678,7 @@ async function chatView(pn){
     catch(e){$('#mc').style.borderColor='';if(String(e)==='perm')toast('Allow the microphone to talk')}
   };
   draw();
+  try{const j=localStorage.jumpTo&&JSON.parse(localStorage.jumpTo);if(j&&j.n===pn){localStorage.removeItem('jumpTo');const el=chat.querySelector('[data-i="'+j.i+'"]');if(el){el.classList.add('flash');try{el.scrollIntoView({block:'center'})}catch{}setTimeout(()=>el.classList.remove('flash'),2400)}}}catch{}
 }
 const PHONE_RULES='You are running inside an Android phone app and can control the phone. The user cannot see tool calls, so to make the phone do something, write one line that starts with ACTION: followed by a single-line JSON object, with no code block and no backticks. Example:\nACTION: {"action":"open_app","name":"WhatsApp"}\nAvailable actions: open_app{name}, open_url{url}, dial{name or number}, sms{name or number,body}, email{to,subject,body}, search{query}, map{query}, alarm{hour,minute,label}, timer{seconds,label}, settings{page: wifi|bluetooth|display|sound|battery|apps|location|main}, share{text}. Keep your normal reply to one short sentence next to the ACTION line. The user presses Run before it happens. Only use ACTION when the user wants the phone to do something. For sms you only prepare the message: the user presses send.';
 function sysPrompt(pn){
@@ -1020,6 +1023,7 @@ function shrinkImage(f){return new Promise(res=>{if(!(f.type||'').startsWith('im
   img.onerror=()=>{URL.revokeObjectURL(u);res(null)};img.src=u})}
 /* ---------- App Creator: describe an app, watch it get built ---------- */
 const CRL=()=>jget('cr:list',[]),crLoad=id=>jget('cr:'+id,null);
+function crAddVer(p,note,keep){const c=p.code;if(!c)return;const vs=(p.vers||[]).filter(v=>v.code!==c);vs.unshift({code:c,at:Date.now(),note:String(note||'').slice(0,90),ck:!!keep});let tot=0;p.vers=vs.filter((v,i)=>{tot+=(v.code||'').length;return i===0||(i<12&&tot<=450000)})}
 function crSave(p){const put=()=>{localStorage['cr:'+p.id]=JSON.stringify(p);const l=CRL().filter(x=>x.id!==p.id);l.unshift({id:p.id,title:p.title,at:Date.now(),icon:p.icon||'',color:p.color,pin:!!p.pin});localStorage['cr:list']=JSON.stringify([...l.filter(x=>x.pin),...l.filter(x=>!x.pin)].slice(0,40))};
   try{put()}catch{try{for(const x of CRL()){if(x.id===p.id)continue;const o=crLoad(x.id);if(o&&o.vers){delete o.vers;localStorage['cr:'+x.id]=JSON.stringify(o)}}put()}catch{toast('Could not save (storage is full)')}}}
 function crDelete(id){localStorage.removeItem('cr:'+id);localStorage['cr:list']=JSON.stringify(CRL().filter(x=>x.id!==id))}
@@ -1184,7 +1188,7 @@ async function creatorView(openId){
     busy=true;ctl=new AbortController();$('#crsd').innerHTML=STOPIC;proj.ai=ai;proj.msgs.push({r:'user',t:'Continue the cut-off app'});
     const t0=Date.now();$('#crmain').classList.add('building');showTab('preview');$('#crpv').hidden=false;$('#crcode').hidden=false;$('#cremp').hidden=true;
     try{const c=await extend(proj.code,ai,t0);
-      if(c!==proj.code){proj.vers=[{code:proj.code,at:Date.now(),note:'Before continuing'},...(proj.vers||[])].slice(0,4);proj.code=c;proj.msgs.push({r:'ai',t:crComplete(c)?'Finished the app.':'Added more, but it still looks unfinished. Tap Continue again.'});setS(crComplete(c)?'Finished · '+c.split('\n').length+' lines':'Still unfinished · tap Continue again')}
+      if(c!==proj.code){crAddVer(proj,'Before continuing');proj.code=c;proj.msgs.push({r:'ai',t:crComplete(c)?'Finished the app.':'Added more, but it still looks unfinished. Tap Continue again.'});setS(crComplete(c)?'Finished · '+c.split('\n').length+' lines':'Still unfinished · tap Continue again')}
       else{proj.msgs.push({r:'ai',t:'The AI did not add anything. Try another AI.'});setS('Nothing was added');toast('The AI did not add anything. Try another AI.')}
     }catch(e){if(e&&e.name==='AbortError'){if($('#crs'))setS('Stopped')}else{proj.msgs.push({r:'ai',t:'Error: '+e.message});if($('#crs'))setS('Failed: '+String(e.message).slice(0,80))}}
     busy=false;ctl=null;crSave(proj);if(!$('#crmain'))return;
@@ -1208,7 +1212,7 @@ async function creatorView(openId){
       const all=await streamPlayground({model:ai,room:'cr'+proj.id,stream:true,messages:[{role:'system',content:CR_SYS},{role:'user',content:prompt}]},live,ctl.signal);
       let c=crCode(all||acc);
       if(c&&!crComplete(c))c=await extend(c,ai,t0);
-      if(c){if(proj.code&&proj.code!==c){proj.vers=[{code:proj.code,at:Date.now(),note:shown||text},...(proj.vers||[])].slice(0,4)}proj.code=c;proj.msgs.push({r:'ai',t:crNote(all)||'Built it.'});setS(crComplete(c)?'Done in '+Math.round((Date.now()-t0)/1000)+'s · '+c.split('\n').length+' lines':'Cut off · tap Continue');if(!crComplete(c))toast('The AI stopped before finishing. Tap Continue to finish the app.')}
+      if(c){if(proj.code&&proj.code!==c){crAddVer(proj,shown||text)}proj.code=c;proj.msgs.push({r:'ai',t:crNote(all)||'Built it.'});setS(crComplete(c)?'Done in '+Math.round((Date.now()-t0)/1000)+'s · '+c.split('\n').length+' lines':'Cut off · tap Continue');if(!crComplete(c))toast('The AI stopped before finishing. Tap Continue to finish the app.')}
       else{proj.msgs.push({r:'ai',t:crNote(all)||'The AI did not send any app code.'});setS('No app code came back');toast('The AI did not return app code. Try again or pick another AI.')}
       notifyDone('App Creator',c?'Your app is ready':'The build finished');useStat(ai,!!c,c?'':'No app code');
     }catch(e){if(e&&e.name==='AbortError'){if($('#crs'))setS('Stopped')}else{proj.msgs.push({r:'ai',t:'Error: '+e.message});if($('#crs'))setS('Failed: '+String(e.message).slice(0,80));useStat(ai,false,e.message)}}
@@ -1225,7 +1229,7 @@ async function creatorView(openId){
   document.querySelectorAll('.crdev [data-w]').forEach(b=>b.onclick=()=>{dev=+b.dataset.w;localStorage.crdev=dev;applyDev()});
   const importCode=async()=>{
     if(busy){toast('Wait for the build to finish');return}
-    const load=c=>{if(proj.code&&proj.code!==c)proj.vers=[{code:proj.code,at:Date.now(),note:'Before import'},...(proj.vers||[])].slice(0,4);proj.code=c;if(proj.title==='New app')proj.title='Imported app';proj.msgs.push({r:'ai',t:'Imported code from outside. Ask for changes and your AI will work on it.'});head();$('#crcode').textContent=c;crSave(proj);renderPreview();renderChat();drawQuick();drawSv();showTab('preview');toast('Imported')};
+    const load=c=>{if(proj.code&&proj.code!==c)crAddVer(proj,'Before import');proj.code=c;if(proj.title==='New app')proj.title='Imported app';proj.msgs.push({r:'ai',t:'Imported code from outside. Ask for changes and your AI will work on it.'});head();$('#crcode').textContent=c;crSave(proj);renderPreview();renderChat();drawQuick();drawSv();showTab('preview');toast('Imported')};
     let clip='';try{clip=await navigator.clipboard.readText()}catch{}
     const c0=clip?crCode(clip):'';
     if(c0&&/<!doctype html|<html|<body/i.test(c0)){if(!proj.code||await ask('Replace the current app with the code you copied?','Replace'))load(c0);return}
@@ -1236,9 +1240,14 @@ async function creatorView(openId){
   $('#crpadb').onclick=()=>{padOn=!padOn;localStorage.crpad=padOn?'1':'0';drawGameBtns()};
   $('#crswb').onclick=()=>{swipeOn=!swipeOn;localStorage.crswipe=swipeOn?'1':'0';sendSwipe();drawGameBtns();toast(swipeOn?'Swipes now act like arrow keys, a tap is Space':'Swipe mode off')};
   $('#crrl').onclick=()=>{if(!proj.code){toast('Nothing to reload yet');return}renderPreview();drawQuick();toast('Preview reloaded')};
-  $('#crhist').onclick=()=>{if(busy){toast('Wait for the build to finish');return}const vs=proj.vers||[];if(!vs.length){toast('Earlier versions appear here after you change the app');return}
-    const w=sheet(`<h2>History</h2><p class="mu">Tap a version to bring it back. The version you have now is kept in the history too.</p>`+vs.map((v,i)=>`<div class="row plain" data-v="${i}" style="cursor:pointer"><div class="m"><b style="font-weight:600">${i===0?'Previous version':'Version '+(vs.length-i)}</b><small>${esc(String(v.note||'').slice(0,60))} · ${new Date(v.at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</small></div><span class="mu">Restore</span></div>`).join(''));
-    w.querySelectorAll('[data-v]').forEach(r=>r.onclick=()=>{const i=+r.dataset.v,v=vs[i];proj.vers=[{code:proj.code,at:Date.now(),note:'Before restoring'},...vs.filter((_,j)=>j!==i)].slice(0,4);proj.code=v.code;crSave(proj);w.remove();renderPreview();$('#crcode').textContent=proj.code;drawQuick();showTab('preview');toast('Restored')})};
+  const previewVer=code=>{const o=document.createElement('div');o.className='crfull';o.innerHTML='<button id="crx" aria-label="Close preview">✕</button><iframe sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads allow-pointer-lock" allow="fullscreen; clipboard-write; autoplay" title="Old version"></iframe>';document.body.appendChild(o);o.querySelector('iframe').srcdoc=crDoc(code);o.querySelector('#crx').onclick=()=>o.remove()};
+  const openHist=()=>{const vs=proj.vers||[];
+    const fmt=t=>{const d=new Date(t);return d.toLocaleDateString([],{day:'numeric',month:'short'})+' '+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})};
+    const w=sheet(`<h2>History</h2><p class="mu" style="margin:0 0 10px">Every change keeps the version before it (up to 12). Preview one, then restore it. Your current version is kept too.</p><button class="btn alt" id="hck" style="margin-bottom:10px">Save a checkpoint now</button>`+(vs.length?vs.map((v,i)=>`<div class="row plain" style="align-items:center"><div class="m"><b style="font-weight:600">${v.ck?'★ ':''}${esc(String(v.note||'Earlier version').slice(0,60))}</b><small>${fmt(v.at)} · ${Math.max(1,Math.round((v.code||'').length/1024))} KB</small></div><button class="chip" data-pv="${i}">Preview</button><button class="chip" data-v="${i}">Restore</button></div>`).join(''):'<p class="mu">Earlier versions appear here after you change the app.</p>'));
+    w.querySelector('#hck').onclick=()=>{if(!proj.code){toast('Build something first');return}const nm=(prompt('Name this checkpoint','Checkpoint')||'').trim();if(!nm)return;crAddVer(proj,nm,true);crSave(proj);w.remove();openHist();toast('Checkpoint saved')};
+    w.querySelectorAll('[data-pv]').forEach(r=>r.onclick=()=>previewVer(vs[+r.dataset.pv].code));
+    w.querySelectorAll('[data-v]').forEach(r=>r.onclick=()=>{const i=+r.dataset.v,v=vs[i];if(!v)return;crAddVer(proj,'Before restoring');proj.vers=(proj.vers||[]).filter(x=>x.code!==v.code||x.ck);proj.code=v.code;crSave(proj);w.remove();renderPreview();$('#crcode').textContent=proj.code;drawQuick();showTab('preview');toast('Restored')})};
+  $('#crhist').onclick=()=>{if(busy){toast('Wait for the build to finish');return}openHist()};
   document.querySelectorAll('#crtabs [data-t]').forEach(b=>b.onclick=()=>{if(!busy)showTab(b.dataset.t)});
   $('#crfs').onclick=()=>{if(!proj.code){toast('Nothing to show yet');return}const o=document.createElement('div');o.className='crfull';o.innerHTML='<button id="crx" aria-label="Close full screen (drag to move)">✕</button><iframe sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads allow-pointer-lock" allow="fullscreen; clipboard-write; autoplay; accelerometer; gyroscope" title="Full screen"></iframe>';document.body.appendChild(o);const fi=o.querySelector('iframe');fi.srcdoc=crDoc(proj.code);fi.onload=()=>{try{fi.contentWindow.postMessage({crswipe:swipeOn},'*')}catch{}};if(game||swipeOn||padOn)fi.style.touchAction='none';if(padOn)o.appendChild(pad(()=>fi.contentWindow));const x=o.querySelector('#crx');let sx,sy,bx,by,mv=0;
     // small round button you can drag out of the way of the app's own buttons; a tap closes
@@ -1254,10 +1263,17 @@ async function creatorView(openId){
     w.querySelector('#cs').onclick=()=>{const c=JSON.parse(JSON.stringify(proj));c.id='p'+Date.now().toString(36);c.title=(w.querySelector('#cn').value.trim()||c.title).slice(0,60);crSave(c);crSave(proj);drawSv();w.remove();toast('Saved as "'+c.title+'"')}};
   $('#crm').onclick=()=>{const v=sheet(`<h2>${esc(proj.title)}</h2>
     <button class="row" id="m1"><div class="m"><b>Copy code</b></div></button><button class="row" id="m2"><div class="m"><b>Share code</b><small>Send the HTML file text to another app</small></div></button>
-    <button class="row" id="m3"><div class="m"><b>Rename</b></div></button><button class="row" id="m4"><div class="m"><b>Paste code from somewhere else</b><small>For example an app you built yourself on another site</small></div></button>
+    <button class="row" id="m6"><div class="m"><b>${proj.share?'Shared link: update or stop':'Share as a link'}</b><small>Anyone with the link can open the app in their browser</small></div></button><button class="row" id="m3"><div class="m"><b>Rename</b></div></button><button class="row" id="m4"><div class="m"><b>Paste code from somewhere else</b><small>For example an app you built yourself on another site</small></div></button>
     <button class="row" id="m5"><div class="m"><b>Delete this app</b></div></button>`);
     v.querySelector('#m1').onclick=()=>{v.remove();if(proj.code)copyText(proj.code);else toast('Nothing to copy yet')};
     v.querySelector('#m2').onclick=()=>{v.remove();if(proj.code)exportText(proj.title+' (HTML app)',proj.code);else toast('Nothing to share yet')};
+    v.querySelector('#m6').onclick=async()=>{v.remove();if(!proj.code){toast('Nothing to share yet');return}
+      try{const r=await api('/api/shares','POST',{appId:proj.id,title:proj.title,html:crDoc(proj.code)});proj.share=r.id;crSave(proj);const url=location.origin+r.path;
+        const w=sheet(`<h2>Link ready</h2><p class="mu" style="word-break:break-all;margin:0 0 8px">${esc(url)}</p><p class="mu" style="font-size:13px;margin:0 0 10px">Anyone with this link can open the app. Share again after you change the app to update the same link. Apps that save data only keep it on each person's own screen.</p><button class="btn" id="sl1">Copy link</button><button class="btn alt" id="sl2" style="margin-top:8px">Share link</button><button class="btn alt" id="sl3" style="margin-top:8px">Stop sharing</button>`);
+        w.querySelector('#sl1').onclick=()=>copyText(url);
+        w.querySelector('#sl2').onclick=()=>exportText(proj.title+' (app)',url);
+        w.querySelector('#sl3').onclick=async()=>{try{await api('/api/shares/'+r.id,'DELETE');delete proj.share;crSave(proj);w.remove();toast('Stopped sharing')}catch(e){toast(e.message)}}}
+      catch(e){toast(e.message||'Could not share')}};
     v.querySelector('#m3').onclick=()=>{v.remove();const w=sheet(`<h2>Rename</h2><input class="in" id="rn" value="${esc(proj.title)}"><button class="btn" id="rs" style="margin-top:12px">Save</button>`);w.querySelector('#rs').onclick=()=>{proj.title=(w.querySelector('#rn').value.trim()||proj.title).slice(0,60);head();crSave(proj);w.remove()}};
     v.querySelector('#m4').onclick=()=>{v.remove();importCode()};
     v.querySelector('#m5').onclick=async()=>{v.remove();if(await ask('Delete "'+proj.title+'"?','Delete')){crDelete(proj.id);toast('Deleted');location.hash='#/'}}};
@@ -1787,21 +1803,28 @@ function exportText(title,text){
   try{navigator.clipboard.writeText(text);toast('Copied to clipboard')}catch{toast('Could not export')}
 }
 function searchView(){
-  $('#app').innerHTML=`<div class="top"><button class="ib" id="bk" aria-label="Back">${ICON.back}</button><h1>Search chats</h1></div><div class="scroll"><input id="q" class="in" placeholder="Search all your chats and rooms" autocomplete="off"><div id="res" style="margin-top:14px"></div></div>`;
+  let flt='all',tmr=null;
+  $('#app').innerHTML=`<div class="top"><button class="ib" id="bk" aria-label="Back">${ICON.back}</button><h1>Search</h1></div><div class="scroll"><input id="q" class="in" placeholder="Search chats, calls, rooms and apps" autocomplete="off"><div class="chips" id="sf" style="margin-top:10px">${[['all','All'],['chat','Chats'],['call','Calls'],['room','Rooms'],['app','Apps']].map(([k,t])=>`<button class="chip${k==='all'?' on':''}" data-f="${k}">${t}</button>`).join('')}</div><div id="res" style="margin-top:14px"></div></div>`;
   $('#bk').onclick=()=>location.hash='#/';
+  const snip=(c,q)=>{const t=c.replace(/\s+/g,' '),i=t.toLowerCase().indexOf(q);if(i<0)return esc(t.slice(0,140));const a=Math.max(0,i-45),b=Math.min(t.length,i+q.length+110);return (a?'…':'')+esc(t.slice(a,i))+'<mark>'+esc(t.slice(i,i+q.length))+'</mark>'+esc(t.slice(i+q.length,b))+(b<t.length?'…':'')};
   const run=()=>{
     const q=$('#q').value.trim().toLowerCase();if(q.length<2){$('#res').innerHTML='';return}
-    const out=[];
-    for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);
+    const out=[],add=o=>{if(out.length<400)out.push(o)};
+    for(let k=0;k<localStorage.length;k++){const key=localStorage.key(k);
       try{
-        if(k.startsWith('m:')){JSON.parse(localStorage[k]).forEach(m=>{if(m.content&&m.content.toLowerCase().includes(q))out.push({t:'chat',n:k.slice(2),c:m.content})})}
-        else if(k.startsWith('room:')){const r=JSON.parse(localStorage[k]);(r.msgs||[]).forEach(m=>{if(!m.pass&&m.content&&m.content.toLowerCase().includes(q))out.push({t:'room',n:r.name,id:r.id,c:m.content})})}
+        if(key.startsWith('m:')&&(flt==='all'||flt==='chat'||flt==='call')){JSON.parse(localStorage[key]).forEach((m,i)=>{if(!m.content)return;const isCall=m.kind==='call';if(isCall?flt==='chat':flt==='call')return;
+          const txt=isCall&&m.call?m.content+'\n'+(m.call.summary||'')+'\n'+(m.call.text||''):m.content;if(txt.toLowerCase().includes(q))add({t:isCall?'call':'chat',n:key.slice(2),i,c:txt})})}
+        else if(key.startsWith('room:')&&(flt==='all'||flt==='room')){const r=JSON.parse(localStorage[key]);(r.msgs||[]).forEach(m=>{if(!m.pass&&m.content&&m.content.toLowerCase().includes(q))add({t:'room',n:r.name,id:r.id,c:m.content})})}
+        else if(key.startsWith('cr:')&&key!=='cr:list'&&(flt==='all'||flt==='app')){const p=JSON.parse(localStorage[key]);const txt=[p.title].concat((p.msgs||[]).map(m=>m.t||'')).join('\n');if(txt.toLowerCase().includes(q))add({t:'app',n:p.title,id:p.id,c:txt})}
       }catch{}}
-    $('#res').innerHTML=out.slice(0,40).map(o=>{const i=o.c.toLowerCase().indexOf(q),sn=o.c.slice(Math.max(0,i-40),i+100).replace(/\s+/g,' ');
-      return `<button class="card prov" data-t="${o.t}" data-n="${esc(o.n)}" data-id="${esc(o.id||'')}"><div class="m"><b>${esc(o.t==='room'?o.n+' (room)':cap(o.n))}</b><small style="white-space:normal">${esc(sn)}</small></div></button>`}).join('')||'<div class="mu">No matches.</div>';
-    document.querySelectorAll('#res .prov').forEach(b=>b.onclick=()=>location.hash=b.dataset.t==='room'?'#/room/'+b.dataset.id:'#/chat/'+encodeURIComponent(b.dataset.n));
+    const lab={chat:'',call:' · call',room:' (room)',app:' · app'};
+    $('#res').innerHTML=(out.length?`<div class="mu" style="font-size:13px;margin:0 0 8px">${out.length>=400?'400+':out.length} match${out.length===1?'':'es'}${out.length>60?', showing the first 60':''}</div>`:'')+(out.slice(0,60).map((o,k)=>`<button class="card prov" data-k="${k}"><div class="m"><b>${esc((o.t==='room'||o.t==='app')?o.n:cap(o.n))}${lab[o.t]}</b><small style="white-space:normal">${snip(o.c,q)}</small></div></button>`).join('')||'<div class="mu">No matches.</div>');
+    document.querySelectorAll('#res .prov').forEach(b=>b.onclick=()=>{const o=out[+b.dataset.k];
+      if(o.t==='room')location.hash='#/room/'+o.id;else if(o.t==='app')location.hash='#/creator/'+encodeURIComponent(o.id);
+      else{localStorage.jumpTo=JSON.stringify({n:o.n,i:o.i});location.hash='#/chat/'+encodeURIComponent(o.n)}});
   };
-  $('#q').oninput=run;
+  $('#q').oninput=()=>{clearTimeout(tmr);tmr=setTimeout(run,200)};
+  $('#sf').querySelectorAll('[data-f]').forEach(b=>b.onclick=()=>{flt=b.dataset.f;$('#sf').querySelectorAll('[data-f]').forEach(x=>x.classList.toggle('on',x===b));run()});
 }
 let cmpBusy=false;
 async function compareView(){
